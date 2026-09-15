@@ -3,6 +3,7 @@ from backend.models.llm import model,lessonmodel
 from backend.schemas.chat import ChatRequest
 from backend.prompts.tutor import tutorprompt
 from backend.prompts.lesson import lessonprompt
+from backend.rag.rag_chain import ask_rag
 
 
 
@@ -26,6 +27,13 @@ def chat(request:ChatRequest):
     
     return {"response":response.content
             }
+
+@app.post("/rag/chat")
+def rag_chat(request:ChatRequest):
+    response=ask_rag(request.query)
+    return {
+        "response":response
+    }
 
 @app.post("/lesson-plan")
 def create_lesson_plan(requesst:ChatRequest):
