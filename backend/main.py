@@ -1,7 +1,8 @@
 from fastapi import FastAPI
-from backend.models.llm import model
+from backend.models.llm import model,lessonmodel
 from backend.schemas.chat import ChatRequest
-from backend.prompts.tutor import prompt
+from backend.prompts.tutor import tutorprompt
+from backend.prompts.lesson import lessonprompt
 
 
 
@@ -16,12 +17,22 @@ def health():
 
 @app.post("/chat")
 def chat(request:ChatRequest):
-    chain=prompt|model
+    chain=tutorprompt|model
     response=chain.invoke(
         {
-            "message":request.query
+            "query":request.query
         }
     )
     
     return {"response":response.content
             }
+
+@app.post("/lesson-plan")
+def create_lesson_plan(requesst:ChatRequest):
+    chain=lessonprompt|lessonmodel
+    response=chain.invoke(
+        {
+           "request":requesst.query
+        }
+        )
+    return response.model_dump()
