@@ -234,3 +234,11 @@ frontend/dist/
 frontend/build/
 frontend/.vite/
 frontend/.cache/
+
+# RAG / Vector store
+**/chroma_db/
+chroma/
+*.pickle
+
+# Test artifacts
+retrieval_results.json

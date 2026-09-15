@@ -3,4 +3,11 @@ import os
 
 load_dotenv()
 
-GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
+
+class Settings():
+   GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
+   model='gemini-2.5-flash'
+   embedding_model='gemini-embedding-001'
+
+
+settings=Settings()
