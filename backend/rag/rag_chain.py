@@ -6,24 +6,32 @@ from backend.rag.vector_store import get_vector_store
 
 def create_rag_chain():
   
-    prompt=ChatPromptTemplate.from_message(
-        """ 
-     You are TutorDesk, an AI teaching assistant.
+    prompt=ChatPromptTemplate.from_messages([
+        (
+        "system",
+        """
+        You are TutorDesk, an AI teaching assistant.
 
-    Answer the teacher's question using ONLY the provided
-    course material.
+        Use the provided course material as your primary reference.
 
-    If the answer cannot be found in the course material,
-    say that the information is not available in the
-    uploaded material.
-    
-    COURSE MATERIAL:
-    {context}
-    TEACHER QUESTION:
-    {question}
+        If the user asks for advice, suggestions, or explanations,
+        you may also supplement with your general knowledge to help them.
 
-    """
+        If the material conflicts with general knowledge, defer to
+        the course material.
+        """
+    ),
+    (
+        "human",
+        """
+        COURSE MATERIAL:
+        {context}
+
+        TEACHER QUESTION:
+        {question}
+        """
     )
+    ])
     retriever = get_vector_store().as_retriever(
         search_kwargs={"k": 4}
     )
@@ -35,7 +43,7 @@ def create_rag_chain():
     }
     |prompt
     |model
-    |StrOutputParser
+    |StrOutputParser()
     )
     return rag_chain
 

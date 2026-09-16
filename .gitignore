@@ -240,5 +240,8 @@ frontend/.cache/
 chroma/
 *.pickle
 
+# Runtime data / uploaded materials
+backend/data/
+
 # Test artifacts
 retrieval_results.json
