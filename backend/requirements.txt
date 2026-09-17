@@ -10,4 +10,5 @@ langchain-community==0.3.31
 langchain-text-splitters==0.3.11
 chromadb==1.5.9
 PyMuPDF==1.25.5
+trafilatura==2.2.0
 langchain-tavily==0.2.18
