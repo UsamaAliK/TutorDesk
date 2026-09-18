@@ -1,20 +1,36 @@
 from backend.websearch.search import web_search
 from backend.websearch.fetcher import fetch_page
-from backend.websearch.processed import process_results,clean_documents
+from backend.websearch.processed import process_results,is_valid_doc,clean_text
 
 
-def research_topic(query:str):
+def research_topic(query: str):
 
-    search_results=web_search(query)
+    search_results = web_search(query)
 
-    processed_result=process_results(search_results)
-    document=[]
+    processed_results = process_results(search_results)
 
-    for result in processed_result[:3]:
-        
-        fetch_doc=fetch_page(result["url"])
+    documents = []
 
-        document.extend(fetch_doc)
-    cleaned_documents = clean_documents(document)
-    return cleaned_documents
+    for result in processed_results[:5]:
 
+        url = result["url"]
+
+        if "youtube.com" in url or "youtu.be" in url:
+            continue
+
+        document = fetch_page(url)
+
+        if not document:
+            continue
+
+        content = clean_text(document.page_content)
+
+        if not is_valid_doc(content):
+            continue
+
+        documents.append({
+            "content": content,
+            "source": document.metadata.get("source")
+        })
+
+    return documents

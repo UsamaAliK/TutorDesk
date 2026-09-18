@@ -2,7 +2,6 @@ import re
 
 
 
-
 def process_results(search_results):
     processed_results = []
 
@@ -34,10 +33,25 @@ def clean_documents(documents):
         )
     return cleaned_documents
 
+
+
 def clean_text(text: str) -> str:
-    lines=[l.strip() for l in text.splitlines()]
-    lines=[l for l in lines if len(l) > 1 and not re.match(r'^[^a-zA-Z]{0,3}$', l)]
-    text="\n".join(lines)
-    blocks=re.split(r'\n\s*\n', text)
-    text=max(blocks, key=lambda b: len(b.split()))
+
+    lines = [line.strip() for line in text.splitlines()]
+
+    lines = [
+        line
+        for line in lines
+        if len(line) > 1
+        and not re.match(r'^[^a-zA-Z]{0,3}$', line)
+    ]
+
+    text = "\n".join(lines)
+
     return re.sub(r'\s+', ' ', text).strip()
+
+def is_valid_doc(text:str):
+    words=text.split()
+    if len(words)<=50:
+        return False
+    return True
