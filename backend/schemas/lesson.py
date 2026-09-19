@@ -9,3 +9,4 @@ class LessonPlan(BaseModel):
     examples: list[str]
     activities: list[str]
     assessments: list[str]
+    sources: list[str]

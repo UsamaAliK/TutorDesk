@@ -3,7 +3,7 @@ from backend.websearch.fetcher import fetch_page
 from backend.websearch.processed import process_results,is_valid_doc,clean_text
 
 
-def research_topic(query: str):
+def search_topic(query: str):
 
     search_results = web_search(query)
 
@@ -11,7 +11,7 @@ def research_topic(query: str):
 
     documents = []
 
-    for result in processed_results[:5]:
+    for result in processed_results[:3]:
 
         url = result["url"]
 

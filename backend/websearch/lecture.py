@@ -1,6 +1,6 @@
 from backend.models.llm import lessonmodel
 from backend.prompts.lesson import lessonprompt
-from backend.websearch.research import research_topic
+from backend.websearch.research import search_topic
 
 
 def create_lecture_chain():
@@ -10,9 +10,9 @@ def create_lecture_chain():
     return chain
 
 
-def ask_with_research(question: str):
+def ask_with_search(question: str):
 
-    docs = research_topic(question)
+    docs = search_topic(question)
 
     context = "\n\n---\n\n".join(
         f"SOURCE: {d['source']}\nCONTENT:\n{d['content']}"
