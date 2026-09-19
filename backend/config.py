@@ -8,6 +8,9 @@ class Settings():
    GOOGLE_API_KEY=os.getenv("GOOGLE_API_KEY")
    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
    DATABASE_URL = os.getenv("DATABASE_URL")
+   SECRET_KEY=os.getenv("SECRET_KEY")
+   ALGORITHM="HS256"
+   ACCESS_TOKEN_EXPIRE_MINUTES=60*24
    model='gemini-2.5-flash'
    embedding_model='gemini-embedding-001'
 
