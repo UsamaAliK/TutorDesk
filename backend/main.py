@@ -6,6 +6,7 @@ from backend.prompts.lesson import lessonprompt
 from backend.rag.rag_chain import ask_rag
 from backend.rag.vector_store import create_vector_store
 from backend.websearch.lecture import ask_with_search
+from backend.agent.agent import agent
 
 
 
@@ -18,6 +19,16 @@ app=FastAPI(title="TutorDesk")
 @app.get('/')
 def health():
     return  {"message": "TutorDesk API is running"}
+
+@app.post("/ask")
+def ask(request:ChatRequest):
+    response=agent.invoke({
+        "messages":[
+            ("user", request.query)
+        ]
+    })
+    return response
+
 
 @app.post("/chat")
 def chat(request:ChatRequest):
@@ -52,6 +63,7 @@ def create_lesson_plan(requesst:ChatRequest):
 def search(request:ChatRequest):
     response=ask_with_search(request.query)
     return response.model_dump()
+
 @app.post("/upload")
 async def upload_pdf(file:UploadFile=File(...)):
     file_path=f"backend/data/uploads/{file.filename}"
