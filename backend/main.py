@@ -5,7 +5,7 @@ from backend.prompts.tutor import tutorprompt
 from backend.prompts.lesson import lessonprompt
 from backend.rag.rag_chain import ask_rag
 from backend.rag.vector_store import create_vector_store
-from backend.websearch.lecture import ask_with_search
+from backend.websearch.lecture import ask_with_source
 from backend.agent.agent import agent
 
 
@@ -61,7 +61,7 @@ def create_lesson_plan(requesst:ChatRequest):
 
 @app.post("/search")
 def search(request:ChatRequest):
-    response=ask_with_search(request.query)
+    response=ask_with_source(request.query)
     return response.model_dump()
 
 @app.post("/upload")

@@ -26,3 +26,27 @@ def get_vector_store():
 
 def retrieve(query: str, k: int = 4):
     return get_vector_store().similarity_search(query, k=k)
+
+
+def workspace_has_material() -> bool:
+    store = get_vector_store()
+    return store._collection.count() > 0
+
+
+def retrieve_chunks(query: str, k: int = 4):
+    docs = retrieve(query, k=k)
+
+    chunks = []
+
+    for doc in docs:
+        content = doc.page_content.strip()
+
+        if not content:
+            continue
+
+        chunks.append({
+            "content": content,
+            "source": doc.metadata.get("source")
+        })
+
+    return chunks
