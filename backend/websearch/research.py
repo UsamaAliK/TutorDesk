@@ -1,6 +1,7 @@
 from backend.websearch.search import web_search
 from backend.websearch.fetcher import fetch_page
 from backend.websearch.processed import process_results,is_valid_doc,clean_text
+from backend.rag.vector_store import workspace_has_material, retrieve_chunks
 
 
 def search_topic(query: str):
@@ -34,3 +35,22 @@ def search_topic(query: str):
         })
 
     return documents
+
+
+def gather_context(query: str, source: str = "auto"):
+
+    if source == "web":
+        return search_topic(query)
+
+    if source == "rag":
+        return retrieve_chunks(query)
+
+    if source == "both":
+        return search_topic(query) + retrieve_chunks(query)
+
+    if source == "auto":
+        if workspace_has_material():
+            return search_topic(query) + retrieve_chunks(query)
+        return search_topic(query)
+
+    raise ValueError(f"Unknown source: {source}")
