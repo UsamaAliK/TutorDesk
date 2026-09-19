@@ -5,6 +5,7 @@ from backend.prompts.tutor import tutorprompt
 from backend.prompts.lesson import lessonprompt
 from backend.rag.rag_chain import ask_rag
 from backend.rag.vector_store import create_vector_store
+from backend.websearch.lecture import ask_with_search
 
 
 
@@ -45,6 +46,11 @@ def create_lesson_plan(requesst:ChatRequest):
            "request":requesst.query
         }
         )
+    return response.model_dump()
+
+@app.post("/search")
+def search(request:ChatRequest):
+    response=ask_with_search(request.query)
     return response.model_dump()
 @app.post("/upload")
 async def upload_pdf(file:UploadFile=File(...)):
