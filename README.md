@@ -1,6 +1,6 @@
 # TutorDesk
 
-AI teaching assistant for teachers. Upload your own course material and ask questions grounded in it, or let TutorDesk research a topic from the web and turn it into structured teaching content.
+AI teaching assistant for teachers. Upload your own course material and ask questions grounded in it, or let TutorDesk research a topic from the web, then generate the educational content the teacher asks for.
 
 ## Core Modes
 
@@ -9,9 +9,10 @@ AI teaching assistant for teachers. Upload your own course material and ask ques
 - Ask a question → retriever returns the top 4 relevant chunks → Gemini answers.
 - The course material is the primary reference; TutorDesk may supplement with general knowledge, and defers to the material on conflict.
 
-### 2. Research Mode
+### 2. Web Research Mode
 - Web search with **Tavily** (5 results) → keep the top 3 sources → fetch full webpages with **trafilatura** → clean the content (remove boilerplate/navigation).
-- Cleaned multi-source content is fed to Gemini to generate structured educational output, avoiding reliance on shallow search snippets.
+- The pipeline returns **research data + source URLs only** — no LLM, no generation inside the research path.
+- The agent receives the research and decides what educational content to produce (lesson plan, explanation, MCQs, quiz, assignment, summary) based on what the teacher asked for.
 
 ## Tech Stack
 - Python / FastAPI / Pydantic / Uvicorn
@@ -25,7 +26,7 @@ AI teaching assistant for teachers. Upload your own course material and ask ques
 TutorDesk/
 │
 ├── backend/
-│   ├── agent/                # future agent orchestration (placeholder)
+│   ├── agent/                # agent orchestration (rag + search tools)
 │   ├── rag/
 │   │   ├── loader.py         # PDF → documents
 │   │   ├── chunking.py       # text splitter
@@ -35,9 +36,9 @@ TutorDesk/
 │   ├── websearch/
 │   │   ├── search.py         # Tavily web search
 │   │   ├── fetcher.py        # trafilatura full-page fetch
-│   │   ├── processed.py      # process_results / clean_documents / clean_text
-│   │   ├── research.py       # research_topic: search → top 3 → fetch → clean
-│   │   └── lecture.py        # research → lesson prompt → structured LessonPlan
+│   │   ├── processed.py      # process_results / clean_documents / clean_text / is_valid_doc
+│   │   ├── research.py       # research_topic: search → top 3 → fetch → clean → research + sources (no LLM)
+│   │   └── lecture.py        # separate lesson-plan generation (lessonprompt | lessonmodel)
 │   ├── prompts/
 │   │   ├── tutor.py          # basic chat prompt
 │   │   ├── lesson.py         # lesson plan prompt
@@ -65,6 +66,8 @@ TutorDesk/
 | POST | `/upload`      | Upload PDF, index + embed into Chroma |
 | POST | `/rag/chat`    | Grounded Q&A on uploaded material |
 | POST | `/lesson-plan` | Structured lesson plan (`LessonPlan` schema) |
+| POST | `/search`      | Pure web research — returns research data + source URLs (no LLM) |
+| POST | `/ask`         | Agent — picks rag/search tool, then generates the requested content |
 
 ## Running
 ```bash
@@ -83,11 +86,11 @@ TAVILY_API_KEY=...
 
 ## Roadmap
 1. **Phase 1 — Core RAG** ✅ PDF upload, chunking, embeddings, Chroma retrieval, grounded Q&A.
-2. **Phase 2 — Research Mode** (current): Tavily search → source selection → full-page fetch → content cleaning → multi-source context → Gemini → structured lecture. Content selection of relevant context is the next step.
-3. **Phase 3 — Teaching Engine**: quizzes, MCQs, assignments, difficulty adaptation, source citations on outputs.
+2. **Phase 2 — Web Research** (current): Tavily search → source selection → full-page fetch → content cleaning → **research data + source URLs** (no LLM in the research path). Content selection of relevant context is the next step.
+3. **Phase 3 — Teaching Engine**: agent-driven generation of lessons, quizzes, MCQs, assignments, difficulty adaptation — using research returned by the search tool, with source citations.
 4. **Phase 4 — Frontend**: HTML/CSS/JS upload, chat, research, and lesson-generation interfaces.
 5. **Phase 5 — Production**: PostgreSQL, authentication, user/document isolation, background jobs & queues, rate limits, caching, logging, monitoring.
-6. **Phase 6 — Agent**: tool calling (RAG / web search / teaching tools) so TutorDesk picks the right knowledge source for a request.
+6. **Phase 6 — Agent** ✅ (tool calling: RAG / web search) — TutorDesk picks the right knowledge source and then decides what content to generate.
 
 ## Development Philosophy
 Build → Test → Understand → Connect → Improve. Get a complete skeleton working end-to-end before adding production complexity.
