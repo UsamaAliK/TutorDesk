@@ -1,5 +1,5 @@
 from fastapi import FastAPI,UploadFile,File
-from backend.models.llm import model,lessonmodel
+from backend.llm.model import llm,lessonmodel
 from backend.schemas.chat import ChatRequest
 from backend.prompts.tutor import tutorprompt
 from backend.prompts.lesson import lessonprompt
@@ -32,7 +32,7 @@ def ask(request:ChatRequest):
 
 @app.post("/chat")
 def chat(request:ChatRequest):
-    chain=tutorprompt|model
+    chain=tutorprompt|llm
     response=chain.invoke(
         {
             "message":request.query

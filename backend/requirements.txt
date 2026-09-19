@@ -12,3 +12,7 @@ chromadb==1.5.9
 PyMuPDF==1.25.5
 trafilatura==2.2.0
 langchain-tavily==0.2.18
+sqlalchemy==2.0.53
+psycopg[binary]==3.3.6
+pgvector==0.3.6
+langchain-postgres==0.0.18

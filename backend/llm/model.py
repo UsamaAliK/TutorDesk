@@ -4,11 +4,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from backend.config import settings
 
 
-
-
-model=ChatGoogleGenerativeAI(
+llm = ChatGoogleGenerativeAI(
     model=settings.model,
     temperature=0.4
 )
 
-lessonmodel=model.with_structured_output(LessonPlan)
+lessonmodel = llm.with_structured_output(LessonPlan)

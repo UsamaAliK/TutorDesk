@@ -1,5 +1,5 @@
 from langchain.agents import create_agent
-from backend.models.llm import model
+from backend.llm.model import llm
 from backend.agent.tools import(
     rag_tool,
     search_tool
@@ -12,7 +12,7 @@ tools=[
 ]
 
 agent=create_agent(
-    model=model,
+    model=llm,
     tools=tools,
     system_prompt="""
 You are TutorDesk, an AI teaching assistant.

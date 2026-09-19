@@ -1,4 +1,4 @@
-from backend.models.llm import model
+from backend.llm.model import llm
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from backend.rag.vector_store import get_vector_store
@@ -42,7 +42,7 @@ def create_rag_chain():
         "question":lambda x:x
     }
     |prompt
-    |model
+    |llm
     |StrOutputParser()
     )
     return rag_chain
