@@ -28,11 +28,6 @@ def retrieve(query: str, k: int = 4):
     return get_vector_store().similarity_search(query, k=k)
 
 
-def workspace_has_material() -> bool:
-    store = get_vector_store()
-    return store._collection.count() > 0
-
-
 def retrieve_chunks(query: str, k: int = 4):
     docs = retrieve(query, k=k)
 
