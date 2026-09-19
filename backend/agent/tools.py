@@ -10,8 +10,9 @@ def rag_tool(query:str):
     return ask_rag(query)
 
 @tool
-def search_tool(query:str):
+def lesson_plan_tool(query:str):
 
-    """research the web, scrape relevant websites, clean the content, and generate research."""
+    """Research a topic on the web and create a complete, classroom-ready lesson plan.
+    Returns the lesson plan along with the source URLs used."""
 
     return ask_with_search(query)
