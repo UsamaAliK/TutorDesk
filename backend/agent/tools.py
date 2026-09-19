@@ -1,20 +1,19 @@
 from langchain_core.tools import tool
-from backend.rag.rag_chain import ask_rag
-from backend.websearch.lecture import ask_with_source
+from backend.rag.vector_store import retrieve_chunks
+from backend.websearch.research import research_topic
 
 @tool
 def rag_tool(query:str):
 
-    """Answer questions using material uploaded to the workspace."""
+    """Return relevant text chunks from material uploaded to the workspace.
+    Returns documents and the source files they came from. Does NOT generate content."""
 
-    return ask_rag(query)
+    return retrieve_chunks(query)
 
 @tool
-def lesson_plan_tool(query:str, source: str = "auto"):
+def search_tool(query:str):
 
-    """Research a topic and create a complete, classroom-ready lesson plan.
-    Returns the lesson plan along with the source URLs used.
-    source options: "web" for web research only, "rag" for uploaded material only,
-    "both" to combine both, "auto" to decide automatically."""
+    """Research information from the web and return the research text
+    together with the source URLs. Does NOT generate content."""
 
-    return ask_with_source(query, source)
+    return research_topic(query)
