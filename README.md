@@ -80,7 +80,9 @@ TutorDesk/
 | POST | `/signup`                   | Register (email + password) → `user id` |
 | POST | `/login`                    | Authenticate → `access_token` |
 | GET  | `/me`                       | Current user (Bearer token) |
-| GET  | `/`                         | Health check |
+| GET  | `/`                         | TutorDesk landing page |
+| GET  | `/app`                      | TutorDesk authenticated workspace |
+| GET  | `/health`                   | API health check |
 | POST | `/upload`                   | Upload PDF (max 20 MB), index + embed into PGVector |
 | POST | `/ask`                      | Agent — picks rag/search tool, then generates content; `conversation_id` optional (omitted → new conversation) |
 | POST | `/conversations`            | Create an empty conversation (title) |
@@ -101,7 +103,7 @@ pip install -r backend/requirements.txt
 alembic upgrade head
 uvicorn backend.main:app --reload
 ```
-Docs at `/docs`, ReDoc at `/redoc`.
+Open TutorDesk at `/`; the API health check is at `/health`. Docs are at `/docs`, ReDoc at `/redoc`.
 
 ## Environment
 `backend/config.py` loads a `.env`:

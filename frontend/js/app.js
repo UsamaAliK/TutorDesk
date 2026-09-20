@@ -241,7 +241,7 @@
   window.addEventListener('tutordesk:sources', (event) => {
     sourceList.replaceChildren(); const sources = event.detail;
     if (!sources.length) { sourceList.innerHTML = '<p class="sources-empty">No sources were returned for this response.</p>'; return; }
-    sources.forEach((source) => { const card = document.createElement('article'); card.className = 'source-card'; const link = source.url || source; const label = source.title || link; card.innerHTML = `<span class="source-icon">◎</span><div><strong></strong><a target="_blank" rel="noopener noreferrer"></a></div>`; card.querySelector('strong').textContent = label; const anchor = card.querySelector('a'); anchor.href = link; anchor.textContent = new URL(link).hostname; sourceList.append(card); });
+    sources.forEach((source) => { const card = document.createElement('article'); card.className = 'source-card'; const link = source.url || source; const label = source.title || link; card.innerHTML = `<span class="source-icon">◎</span><div><strong></strong><a target="_blank" rel="noopener noreferrer"></a></div>`; card.querySelector('strong').textContent = label; const anchor = card.querySelector('a'); anchor.href = link; try { anchor.textContent = new URL(link).hostname; } catch { anchor.textContent = link; } sourceList.append(card); });
   });
   request('/me').then((user) => { email.textContent = user.email; }).catch(() => {});
   refreshConversations();
