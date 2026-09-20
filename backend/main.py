@@ -1,14 +1,9 @@
 from fastapi import FastAPI,UploadFile,File,Depends,HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.llm.model import llm,lessonmodel
 from backend.schemas.chat import ChatRequest
 from backend.schemas.auth import SignupRequest,LoginRequest,TokenResponse
-from backend.prompts.tutor import tutorprompt
-from backend.prompts.lesson import lessonprompt
-from backend.rag.rag_chain import ask_rag
 from backend.rag.vector_store import create_vector_store
-from backend.websearch.research import research_topic
 from backend.agent.agent import agent
 from backend.db.database import get_db
 from backend.db.models import User
@@ -60,40 +55,6 @@ def ask(request:ChatRequest):
     })
     return response
 
-
-@app.post("/chat")
-def chat(request:ChatRequest):
-    chain=tutorprompt|llm
-    response=chain.invoke(
-        {
-            "message":request.query
-        }
-    )
-    
-    return {"response":response.content
-            }
-
-@app.post("/rag/chat")
-def rag_chat(request:ChatRequest):
-    response=ask_rag(request.query)
-    return {
-        "response":response
-    }
-
-@app.post("/lesson-plan")
-def create_lesson_plan(requesst:ChatRequest):
-    chain=lessonprompt|lessonmodel
-    response=chain.invoke(
-        {
-           "request":requesst.query
-        }
-        )
-    return response.model_dump()
-
-@app.post("/search")
-def search(request:ChatRequest):
-    response=research_topic(request.query)
-    return response
 
 @app.post("/upload")
 async def upload_pdf(file:UploadFile=File(...)):
