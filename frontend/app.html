@@ -16,16 +16,16 @@
       <div class="sidebar-header"><a class="app-brand" href="/app"><span class="app-logo">▰</span><span>TutorDesk</span></a><button class="close-sidebar" type="button" aria-label="Close menu">×</button></div>
       <button class="new-conversation" type="button"><span>＋</span> New Conversation</button>
       <nav class="conversation-list" aria-live="polite"></nav>
-      <footer class="sidebar-footer"><span class="user-email">you@example.com</span><button type="button" data-logout>Log out</button></footer>
+      <footer class="sidebar-footer"><span class="user-email">you@example.com</span><button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false"><span aria-hidden="true">◐</span> Dark theme</button><button type="button" data-logout>Log out</button></footer>
     </aside>
     <div class="sidebar-scrim" aria-hidden="true"></div>
 
     <main class="chat-workspace">
       <header class="chat-header"><button class="menu-button" type="button" aria-label="Open menu">☰</button><div><h1 data-conversation-title>New conversation</h1><span class="mode-badge">📚 Course Material</span></div><button class="sources-toggle" type="button" aria-expanded="true">Sources <span>›</span></button></header>
-      <section class="message-thread" aria-label="Conversation messages" aria-live="polite"><div class="thread-welcome"><div class="welcome-icon">✦</div><h2>How can I help you teach today?</h2><p>Ask about your course material, create an activity, or research a topic from the web.</p></div></section>
+      <section class="message-thread" aria-label="Conversation messages" aria-live="polite"><div class="thread-welcome"><div class="welcome-icon">✦</div><h2>What would you like to create?</h2><p>Build a lesson plan, quiz, MCQs, worksheet, or classroom activity from your material—or research a topic from the web.</p></div></section>
       <section class="composer" aria-label="Message composer">
         <div class="upload-dropzone" hidden><span>Drop a PDF here to upload</span></div>
-        <form class="message-form"><label class="sr-only" for="message-input">Your message</label><textarea id="message-input" rows="1" placeholder="Ask a question about your material…"></textarea><input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden><button class="attach-button" type="button" aria-label="Upload PDF" title="Upload PDF">⌇</button><button class="send-button" type="submit" aria-label="Send message" title="Send message">↑</button></form>
+        <form class="message-form"><label class="sr-only" for="message-input">Your message</label><textarea id="message-input" rows="1" placeholder="Ask a question about your material…"></textarea><input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden><button class="attach-button" type="button" aria-label="Upload PDF" title="Upload PDF"><span aria-hidden="true">⌇</span><span>Upload PDF</span></button><button class="send-button" type="submit" aria-label="Send message" title="Send message">↑</button></form>
         <p class="upload-status" role="status" aria-live="polite"></p><small>Upload a PDF or ask anything. PDF files up to 20 MB.</small>
       </section>
     </main>

@@ -1,6 +1,10 @@
 (() => {
   const form = document.querySelector('[data-auth-form]');
   if (!form) return;
+  if (localStorage.getItem('tutordesk_token')) {
+    window.location.replace('/app');
+    return;
+  }
 
   const apiBase = document.querySelector('meta[name="api-base"]')?.content.replace(/\/$/, '') || '';
   const tabs = [...document.querySelectorAll('[data-auth-mode]')];
@@ -114,13 +118,39 @@
   function setStatus(message = '', isError = false) { status.textContent = message; status.classList.toggle('error', isError); }
   function scrollThread() { thread.scrollTop = thread.scrollHeight; }
   function timestamp() { return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date()); }
+  function appendInline(container, value) {
+    const pieces = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<]+)/g);
+    pieces.forEach((piece) => {
+      if (piece.startsWith('**') && piece.endsWith('**')) { const strong = document.createElement('strong'); strong.textContent = piece.slice(2, -2); container.append(strong); }
+      else if (piece.startsWith('`') && piece.endsWith('`')) { const code = document.createElement('code'); code.textContent = piece.slice(1, -1); container.append(code); }
+      else if (piece.startsWith('[')) { const match = piece.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/); if (match) { const link = document.createElement('a'); link.href = match[2]; link.textContent = match[1]; link.target = '_blank'; link.rel = 'noopener noreferrer'; container.append(link); } else container.append(document.createTextNode(piece)); }
+      else if (/^https?:\/\//.test(piece)) { const link = document.createElement('a'); link.href = piece; link.textContent = piece; link.target = '_blank'; link.rel = 'noopener noreferrer'; container.append(link); }
+      else container.append(document.createTextNode(piece));
+    });
+  }
+  function renderMarkdown(container, value) {
+    container.classList.add('message-markdown');
+    const lines = value.split('\n'); let list = null; let listType = '';
+    const closeList = () => { list = null; listType = ''; };
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (line.startsWith('```')) { closeList(); const block = []; i += 1; while (i < lines.length && !lines[i].startsWith('```')) block.push(lines[i++]); const pre = document.createElement('pre'); const code = document.createElement('code'); code.textContent = block.join('\n'); pre.append(code); container.append(pre); continue; }
+      const heading = line.match(/^(#{1,3})\s+(.+)/);
+      const bullet = line.match(/^[-*]\s+(.+)/);
+      const numbered = line.match(/^\d+\.\s+(.+)/);
+      if (heading) { closeList(); const node = document.createElement(`h${heading[1].length}`); appendInline(node, heading[2]); container.append(node); continue; }
+      if (bullet || numbered) { const type = numbered ? 'ol' : 'ul'; if (!list || listType !== type) { closeList(); list = document.createElement(type); listType = type; container.append(list); } const item = document.createElement('li'); appendInline(item, (bullet || numbered)[1]); list.append(item); continue; }
+      closeList(); if (line.trim()) { const paragraph = document.createElement('p'); appendInline(paragraph, line); container.append(paragraph); }
+    }
+  }
   function addMessage(role, text, typing = false) {
     thread.querySelector('.thread-welcome')?.remove();
     const item = document.createElement('article');
     item.className = `message ${role}${typing ? ' typing' : ''}`;
     const avatar = document.createElement('span'); avatar.className = 'message-avatar'; avatar.textContent = role === 'user' ? 'You' : 'TD';
     const content = document.createElement('div'); content.className = 'message-content';
-    const bubble = document.createElement('div'); bubble.className = 'message-bubble'; bubble.textContent = text;
+    const bubble = document.createElement('div'); bubble.className = 'message-bubble';
+    if (role === 'assistant' && !typing) renderMarkdown(bubble, text); else bubble.textContent = text;
     const time = document.createElement('time'); time.className = 'message-time'; time.textContent = typing ? '' : timestamp();
     content.append(bubble, time); item.append(avatar, content); thread.append(item); scrollThread();
     return item;
@@ -140,6 +170,7 @@
       const response = await fetch(`${apiBase}/ask`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ query, conversation_id: conversationId }) });
       if (!response.ok) throw new Error(await apiError(response));
       const body = await response.json(); conversationId = body.conversation_id || conversationId;
+      if (conversationId) localStorage.setItem('tutordesk_active_conversation', String(conversationId));
       typing.remove(); addMessage('assistant', body.response || 'I could not generate a response.');
       window.dispatchEvent(new CustomEvent('tutordesk:conversation-updated', { detail: { id: conversationId, title: query } }));
       window.dispatchEvent(new CustomEvent('tutordesk:sources', { detail: body.sources || [] }));
@@ -164,11 +195,12 @@
   composer.addEventListener('drop', (event) => uploadFile(event.dataTransfer.files[0]));
   window.addEventListener('tutordesk:select-conversation', (event) => {
     const { id, title, messages } = event.detail; conversationId = id;
+    localStorage.setItem('tutordesk_active_conversation', String(id));
     thread.replaceChildren(); messages.forEach((message) => addMessage(message.role, message.content));
     document.querySelector('[data-conversation-title]').textContent = title;
   });
   window.addEventListener('tutordesk:new-conversation', () => {
-    conversationId = null; thread.innerHTML = '<div class="thread-welcome"><div class="welcome-icon">✦</div><h2>How can I help you teach today?</h2><p>Ask about your course material, create an activity, or research a topic from the web.</p></div>';
+    conversationId = null; localStorage.removeItem('tutordesk_active_conversation'); thread.innerHTML = '<div class="thread-welcome"><div class="welcome-icon">✦</div><h2>What would you like to create?</h2><p>Build a lesson plan, quiz, MCQs, worksheet, or classroom activity from your material—or research a topic from the web.</p></div>';
     document.querySelector('[data-conversation-title]').textContent = 'New conversation';
     window.dispatchEvent(new CustomEvent('tutordesk:sources', { detail: [] }));
   });
@@ -233,16 +265,49 @@
       window.dispatchEvent(new CustomEvent('tutordesk:select-conversation', { detail: { id: conversation.id, title: title.textContent, messages } }));
     } catch (error) { title.textContent = error.message; }
   }
-  async function refreshConversations(activeId) {
-    try { const conversations = await request('/conversations'); renderConversations(conversations); if (activeId) document.querySelector(`[data-id="${activeId}"]`)?.classList.add('active'); } catch (error) { list.textContent = error.message; }
+  async function refreshConversations({ restore = false, activeId = null } = {}) {
+    try {
+      const conversations = await request('/conversations'); renderConversations(conversations);
+      const selectedId = activeId || Number(localStorage.getItem('tutordesk_active_conversation'));
+      const selectedButton = selectedId && document.querySelector(`[data-id="${selectedId}"]`);
+      if (selectedButton) selectedButton.classList.add('active');
+      if (restore && selectedButton) {
+        const selectedConversation = conversations.find((conversation) => conversation.id === selectedId);
+        if (selectedConversation) await loadConversation(selectedConversation, selectedButton);
+      }
+    } catch (error) { list.textContent = error.message; }
   }
   document.querySelector('.new-conversation').addEventListener('click', () => window.dispatchEvent(new Event('tutordesk:new-conversation')));
-  window.addEventListener('tutordesk:conversation-updated', (event) => { title.textContent = event.detail.title.slice(0, 60); refreshConversations(event.detail.id); });
+  window.addEventListener('tutordesk:conversation-updated', (event) => { title.textContent = event.detail.title.slice(0, 60); refreshConversations({ activeId: event.detail.id }); });
   window.addEventListener('tutordesk:sources', (event) => {
     sourceList.replaceChildren(); const sources = event.detail;
     if (!sources.length) { sourceList.innerHTML = '<p class="sources-empty">No sources were returned for this response.</p>'; return; }
     sources.forEach((source) => { const card = document.createElement('article'); card.className = 'source-card'; const link = source.url || source; const label = source.title || link; card.innerHTML = `<span class="source-icon">◎</span><div><strong></strong><a target="_blank" rel="noopener noreferrer"></a></div>`; card.querySelector('strong').textContent = label; const anchor = card.querySelector('a'); anchor.href = link; try { anchor.textContent = new URL(link).hostname; } catch { anchor.textContent = link; } sourceList.append(card); });
   });
-  request('/me').then((user) => { email.textContent = user.email; }).catch(() => {});
-  refreshConversations();
+  fetch(`${apiBase}/me`, { headers }).then((response) => {
+    if (response.status === 401) {
+      localStorage.removeItem('tutordesk_token');
+      window.location.replace('/');
+      return null;
+    }
+    if (!response.ok) return null;
+    return response.json();
+  }).then((user) => { if (user) email.textContent = user.email; });
+  refreshConversations({ restore: true });
+})();
+
+(() => {
+  const toggle = document.querySelector('[data-theme-toggle]');
+  if (!toggle) return;
+  const applyTheme = (dark) => {
+    document.body.classList.toggle('dark-theme', dark);
+    toggle.setAttribute('aria-pressed', String(dark));
+    toggle.innerHTML = `<span aria-hidden="true">${dark ? '☀' : '◐'}</span> ${dark ? 'Light theme' : 'Dark theme'}`;
+  };
+  applyTheme(localStorage.getItem('tutordesk_theme') === 'dark');
+  toggle.addEventListener('click', () => {
+    const dark = !document.body.classList.contains('dark-theme');
+    localStorage.setItem('tutordesk_theme', dark ? 'dark' : 'light');
+    applyTheme(dark);
+  });
 })();
