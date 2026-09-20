@@ -1,3 +1,4 @@
+from backend.config import settings
 from backend.websearch.search import web_search
 from backend.websearch.fetcher import fetch_page
 from backend.websearch.processed import process_results,is_valid_doc,clean_text
@@ -12,7 +13,7 @@ def research_topic(query: str):
     documents = []
     sources = []
 
-    for result in processed_results[:3]:
+    for result in processed_results[:settings.TOP_SOURCES]:
 
         url = result["url"]
 

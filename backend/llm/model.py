@@ -4,5 +4,5 @@ from backend.config import settings
 
 llm = ChatGoogleGenerativeAI(
     model=settings.model,
-    temperature=0.4
+    temperature=settings.LLM_TEMPERATURE
 )

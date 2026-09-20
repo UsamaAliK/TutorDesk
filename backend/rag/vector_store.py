@@ -5,14 +5,14 @@ from backend.rag.chunking import chunk_docs
 from backend.rag.embedding import embeddings
 from backend.rag.loader import load_pdf
 
-COLLECTION = "uploads"
+COLLECTION = settings.VECTOR_COLLECTION
 
 SYNC_URL = settings.DATABASE_URL.replace("postgresql+asyncpg", "postgresql+psycopg")
 ASYNC_URL = settings.DATABASE_URL
 
-EMBED_BATCH_SIZE = 50
-MAX_EMBED_IN_FLIGHT = 5
-EMBEDDING_DIMENSIONS = 768
+EMBED_BATCH_SIZE = settings.EMBED_BATCH_SIZE
+MAX_EMBED_IN_FLIGHT = settings.MAX_EMBED_IN_FLIGHT
+EMBEDDING_DIMENSIONS = settings.EMBEDDING_DIMENSIONS
 
 
 def get_vector_store():
@@ -63,13 +63,13 @@ async def ingest_pdf(pdf_path: str, user_id: int):
     return store
 
 
-def retrieve(query: str, k: int = 4, user_id: int = None):
+def retrieve(query: str, k: int = None, user_id: int = None):
     return get_vector_store().similarity_search(
-        query, k=k, filter={"user_id": str(user_id)}
+        query, k=k or settings.RETRIEVE_K, filter={"user_id": str(user_id)}
     )
 
 
-def retrieve_chunks(query: str, k: int = 4, user_id: int = None):
+def retrieve_chunks(query: str, k: int = None, user_id: int = None):
     docs = retrieve(query, k=k, user_id=user_id)
 
     chunks = []

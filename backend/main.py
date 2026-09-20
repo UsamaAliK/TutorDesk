@@ -19,8 +19,6 @@ from backend.config import settings
 
 
 
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-
 _storage_client = None
 
 
@@ -170,12 +168,12 @@ async def upload_pdf(file:UploadFile=File(...), user:User=Depends(get_current_us
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     data = await file.read()
-    if len(data) > MAX_UPLOAD_BYTES:
+    if len(data) > settings.MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="File too large (max 20 MB)")
 
     storage_path = f"uploads/user_{user.id}/{int(time.time())}_{file.filename}"
     client = await get_storage_client()
-    await client.storage.from_("uploads").upload(
+    await client.storage.from_(settings.STORAGE_BUCKET).upload(
         storage_path, data, {"content-type": "application/pdf", "upsert": "true"}
     )
 
