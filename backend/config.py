@@ -9,6 +9,8 @@ class Settings():
    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
    DATABASE_URL = os.getenv("DATABASE_URL")
    SECRET_KEY=os.getenv("SECRET_KEY")
+   SUPABASE_URL=os.getenv("SUPABASE_URL")
+   SUPABASE_SERVICE_ROLE_KEY=os.getenv("SUPABASE_SERVICE_ROLE_KEY")
    ALGORITHM="HS256"
    ACCESS_TOKEN_EXPIRE_MINUTES=60*24
    model='gemini-2.5-flash'
