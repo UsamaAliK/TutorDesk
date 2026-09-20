@@ -1,5 +1,5 @@
 import os
-
+import time
 from fastapi import FastAPI,UploadFile,File,Depends,HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,7 +65,7 @@ async def me(user:User=Depends(get_current_user)):
     return {"id":user.id, "email":user.email}
 
 @app.post("/ask")
-def ask(request:ChatRequest):
+def ask(request:ChatRequest, user:User=Depends(get_current_user)):
     response=agent.invoke({
         "messages":[
             ("user", request.query)
@@ -75,7 +75,7 @@ def ask(request:ChatRequest):
 
 
 @app.post("/upload")
-async def upload_pdf(file:UploadFile=File(...)):
+async def upload_pdf(file:UploadFile=File(...), user:User=Depends(get_current_user)):
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
@@ -83,13 +83,15 @@ async def upload_pdf(file:UploadFile=File(...)):
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="File too large (max 20 MB)")
 
-    storage_path = f"uploads/{file.filename}"
+    storage_path = f"uploads/user_{user.id}/{int(time.time())}_{file.filename}"
     client = await get_storage_client()
     await client.storage.from_("uploads").upload(
-        storage_path, data, {"content-type": "application/pdf"}
+        storage_path, data, {"content-type": "application/pdf", "upsert": "true"}
     )
 
-    tmp_path = f"backend/data/uploads/{file.filename}"
+    user_dir = f"backend/data/uploads/user_{user.id}"
+    os.makedirs(user_dir, exist_ok=True)
+    tmp_path = f"{user_dir}/{int(time.time())}_{file.filename}"
     with open(tmp_path, "wb") as buffer:
         buffer.write(data)
 
