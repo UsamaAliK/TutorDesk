@@ -1,7 +1,10 @@
 import asyncio
 import os
 import time
+from pathlib import Path
 from fastapi import FastAPI,UploadFile,File,Depends,HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.schemas.chat import AskRequest, ConversationCreate
@@ -33,9 +36,19 @@ async def get_storage_client():
 
 
 app=FastAPI(title="TutorDesk")
-
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/css", StaticFiles(directory=FRONTEND_DIR / "css"), name="css")
+app.mount("/js", StaticFiles(directory=FRONTEND_DIR / "js"), name="js")
 
 @app.get('/')
+def landing_page():
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+@app.get('/app')
+def app_page():
+    return FileResponse(FRONTEND_DIR / "app.html")
+
+@app.get('/health')
 def health():
     return  {"message": "TutorDesk API is running"}
 
