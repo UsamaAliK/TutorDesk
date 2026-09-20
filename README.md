@@ -5,7 +5,7 @@ AI teaching assistant for teachers. Upload your own course material and ask ques
 ## Core Modes
 
 ### 1. Course Material Mode (RAG)
-- Upload a PDF → extract text (`PyPDFLoader`) → split into chunks (`RecursiveCharacterTextSplitter`, 1000/200) → embed with Gemini (`gemini-embedding-001`) → store in ChromaDB.
+- Upload a PDF → extract text (`PyPDFLoader`) → split into chunks (`RecursiveCharacterTextSplitter`, 800/130) → embed with Gemini (`gemini-embedding-001`) → store in ChromaDB.
 - Ask a question → retriever returns the top 4 relevant chunks → Gemini answers.
 - The course material is the primary reference; TutorDesk may supplement with general knowledge, and defers to the material on conflict.
 
@@ -17,7 +17,7 @@ AI teaching assistant for teachers. Upload your own course material and ask ques
 ## Tech Stack
 - Python / FastAPI / Pydantic / Uvicorn
 - Google Gemini (`gemini-2.5-flash`) via `langchain-google-genai`
-- LangChain (LCEL chains, prompts, structured output)
+- LangChain (agent tool calling, prompts)
 - RAG: PyMuPDF, `RecursiveCharacterTextSplitter`, Gemini embeddings, ChromaDB (`langchain-chroma`)
 - Web research: `langchain-tavily`, trafilatura
 
@@ -31,23 +31,17 @@ TutorDesk/
 │   │   ├── loader.py         # PDF → documents
 │   │   ├── chunking.py       # text splitter
 │   │   ├── embedding.py      # Gemini embeddings
-│   │   ├── vector_store.py   # Chroma create/retrieve
-│   │   └── rag_chain.py      # retriever → prompt → Gemini
+│   │   └── vector_store.py   # Chroma create/retrieve
 │   ├── websearch/
 │   │   ├── search.py         # Tavily web search
 │   │   ├── fetcher.py        # trafilatura full-page fetch
 │   │   ├── processed.py      # process_results / clean_documents / clean_text / is_valid_doc
 │   │   ├── research.py       # research_topic: search → top 3 → fetch → clean → research + sources (no LLM)
-│   │   └── lecture.py        # separate lesson-plan generation (lessonprompt | lessonmodel)
-│   ├── prompts/
-│   │   ├── tutor.py          # basic chat prompt
-│   │   ├── lesson.py         # lesson plan prompt
-│   │   └── search.py         # query condenser prompt (test-only)
-│   ├── models/
-│   │   └── llm.py            # model + lessonmodel (structured output)
+│   ├── llm/
+│   │   └── model.py          # llm (Gemini)
 │   ├── schemas/
 │   │   ├── chat.py           # ChatRequest
-│   │   └── lesson.py         # LessonPlan (title, objectives, explanation, examples, activities, assessments)
+│   │   └── auth.py           # SignupRequest / LoginRequest / TokenResponse
 │   ├── data/
 │   │   ├── uploads/
 │   │   └── chroma_db/
@@ -62,12 +56,11 @@ TutorDesk/
 | Method | Path | Description |
 |--------|------|-------------|
 | GET  | `/`            | Health check |
-| POST | `/chat`        | Basic chat (prompt → Gemini) |
 | POST | `/upload`      | Upload PDF, index + embed into Chroma |
-| POST | `/rag/chat`    | Grounded Q&A on uploaded material |
-| POST | `/lesson-plan` | Structured lesson plan (`LessonPlan` schema) |
-| POST | `/search`      | Pure web research — returns research data + source URLs (no LLM) |
 | POST | `/ask`         | Agent — picks rag/search tool, then generates the requested content |
+| POST | `/signup`      | Register (email + password) |
+| POST | `/login`       | Authenticate → `access_token` |
+| GET  | `/me`          | Current user (Bearer token) |
 
 ## Running
 ```bash
@@ -82,6 +75,8 @@ Docs at `/docs`, ReDoc at `/redoc`.
 ```
 GOOGLE_API_KEY=...
 TAVILY_API_KEY=...
+DATABASE_URL=...
+SECRET_KEY=...
 ```
 
 ## Roadmap
