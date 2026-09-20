@@ -92,3 +92,19 @@
     }
   });
 })();
+
+(() => {
+  if (!document.body.classList.contains('app-page')) return;
+
+  const sidebar = document.querySelector('.conversation-sidebar');
+  const sources = document.querySelector('.sources-sidebar');
+  const scrim = document.querySelector('.sidebar-scrim');
+  const closeSidebar = () => { sidebar.classList.remove('is-open'); scrim.classList.remove('is-visible'); };
+  document.querySelector('.menu-button').addEventListener('click', () => { sidebar.classList.add('is-open'); scrim.classList.add('is-visible'); });
+  document.querySelector('.close-sidebar').addEventListener('click', closeSidebar);
+  scrim.addEventListener('click', closeSidebar);
+  document.querySelectorAll('.conversation').forEach((item) => item.addEventListener('click', () => { document.querySelector('.conversation.active')?.classList.remove('active'); item.classList.add('active'); closeSidebar(); }));
+  document.querySelector('.sources-toggle').addEventListener('click', () => sources.classList.add('is-open'));
+  document.querySelector('.sources-sidebar header button').addEventListener('click', () => sources.classList.remove('is-open'));
+  document.querySelector('[data-logout]').addEventListener('click', () => { localStorage.removeItem('tutordesk_token'); window.location.assign('/'); });
+})();

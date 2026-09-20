@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="api-base" content="">
+  <title>TutorDesk | Workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="app-page">
+  <div class="app-shell">
+    <aside class="conversation-sidebar" aria-label="Conversations">
+      <div class="sidebar-header"><a class="app-brand" href="/app"><span class="app-logo">▰</span><span>TutorDesk</span></a><button class="close-sidebar" type="button" aria-label="Close menu">×</button></div>
+      <button class="new-conversation" type="button"><span>＋</span> New Conversation</button>
+      <nav class="conversation-list">
+        <section><h3>Today</h3><button class="conversation active" type="button"><strong>Understanding photosynthesis</strong><small>Just now</small><span class="delete-conversation" aria-hidden="true">⌫</span></button><button class="conversation" type="button"><strong>Grade 8 science lesson plan</strong><small>2 hours ago</small><span class="delete-conversation" aria-hidden="true">⌫</span></button></section>
+        <section><h3>Yesterday</h3><button class="conversation" type="button"><strong>World War II quiz questions</strong><small>Yesterday</small><span class="delete-conversation" aria-hidden="true">⌫</span></button></section>
+        <section><h3>Older</h3><button class="conversation" type="button"><strong>Algebra revision worksheet</strong><small>Sep 14</small><span class="delete-conversation" aria-hidden="true">⌫</span></button></section>
+      </nav>
+      <footer class="sidebar-footer"><span class="user-email">you@example.com</span><button type="button" data-logout>Log out</button></footer>
+    </aside>
+    <div class="sidebar-scrim" aria-hidden="true"></div>
+
+    <main class="chat-workspace">
+      <header class="chat-header"><button class="menu-button" type="button" aria-label="Open menu">☰</button><div><h1>Understanding photosynthesis</h1><span class="mode-badge">📚 Course Material</span></div><button class="sources-toggle" type="button" aria-expanded="true">Sources <span>›</span></button></header>
+      <section class="empty-thread" aria-label="Conversation messages"><div class="thread-welcome"><div class="welcome-icon">✦</div><h2>How can I help you teach today?</h2><p>Ask about your course material, create an activity, or research a topic from the web.</p></div></section>
+      <section class="composer-placeholder" aria-label="Message composer"><div class="composer-preview"><span>Ask a question about your material…</span><button type="button" aria-label="Attach PDF">⌇</button><button type="button" aria-label="Send message">↑</button></div><small>Upload a PDF or ask anything. TutorDesk will cite sources when available.</small></section>
+    </main>
+
+    <aside class="sources-sidebar" aria-label="Sources"><header><h2>Sources</h2><button type="button" aria-label="Close sources">×</button></header><div class="source-card"><span class="source-icon">▤</span><div><strong>Plant Biology — Chapter 4.pdf</strong><small>Uploaded 2 days ago</small></div></div><div class="source-card"><span class="source-icon">◎</span><div><strong>Photosynthesis</strong><a href="https://example.com">example.com</a></div></div></aside>
+  </div>
+  <script src="js/app.js"></script>
+</body>
+</html>
