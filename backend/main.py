@@ -1,15 +1,16 @@
+import asyncio
 import os
 import time
 from fastapi import FastAPI,UploadFile,File,Depends,HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.schemas.chat import ChatRequest
+from backend.schemas.chat import AskRequest, ConversationCreate
 from backend.schemas.auth import SignupRequest,LoginRequest,TokenResponse
 from backend.rag.vector_store import ingest_pdf
 from backend.agent.agent import agent
 from backend.agent.response import final_text, collect_sources
 from backend.db.database import get_db
-from backend.db.models import User
+from backend.db.models import User, Conversation, Message
 from backend.security import hash_password,verify_password,create_access_token
 from backend.auth import get_current_user
 from supabase import create_async_client
@@ -66,21 +67,101 @@ async def me(user:User=Depends(get_current_user)):
     return {"id":user.id, "email":user.email}
 
 @app.post("/ask")
-def ask(request:ChatRequest, user:User=Depends(get_current_user)):
-    state = agent.invoke(
-        {
-            "messages":[
-                ("user", request.query)
-            ]
-        },
-        config={"configurable": {"user_id": user.id}}
+async def ask(request:AskRequest, user:User=Depends(get_current_user), db:AsyncSession=Depends(get_db)):
+    conversation_id = await _ensure_conversation(db, user.id, request)
+
+    db.add(Message(conversation_id=conversation_id, role="user", content=request.query))
+    await db.commit()
+
+    state = await asyncio.to_thread(
+        agent.invoke,
+        {"messages": [("user", request.query)]},
+        config={"configurable": {"user_id": user.id}},
     )
 
     messages = state["messages"]
+    answer = final_text(messages[-1].content)
+    db.add(Message(conversation_id=conversation_id, role="assistant", content=answer))
+    await db.commit()
+
     return {
-        "response": final_text(messages[-1].content),
+        "conversation_id": conversation_id,
+        "response": answer,
         "sources": collect_sources(messages),
     }
+
+
+@app.post("/conversations", status_code=201)
+async def create_conversation(
+    body: ConversationCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    conversation = Conversation(user_id=user.id, title=body.title)
+    db.add(conversation)
+    await db.commit()
+    await db.refresh(conversation)
+    return {"id": conversation.id, "title": conversation.title}
+
+
+@app.get("/conversations")
+async def list_conversations(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Conversation)
+        .where(Conversation.user_id == user.id)
+        .order_by(Conversation.created_at.desc(), Conversation.id.desc())
+    )
+    return [
+        {"id": c.id, "title": c.title, "created_at": c.created_at}
+        for c in result.scalars().all()
+    ]
+
+
+@app.get("/conversations/{conversation_id}/messages")
+async def get_conversation_messages(
+    conversation_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_owned_conversation(db, conversation_id, user.id)
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.asc(), Message.id.asc())
+    )
+    return [
+        {"id": m.id, "role": m.role, "content": m.content}
+        for m in result.scalars().all()
+    ]
+
+
+async def _get_owned_conversation(db: AsyncSession, conversation_id: int, user_id: int) -> Conversation:
+    conversation = (
+        await db.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+async def _ensure_conversation(db: AsyncSession, user_id: int, request: AskRequest) -> int:
+    if request.conversation_id is not None:
+        conversation = await _get_owned_conversation(db, request.conversation_id, user_id)
+        return conversation.id
+
+    conversation = Conversation(user_id=user_id, title=request.query[:60])
+    db.add(conversation)
+    await db.commit()
+    await db.refresh(conversation)
+    return conversation.id
 
 
 @app.post("/upload")
