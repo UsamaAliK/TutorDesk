@@ -12,6 +12,7 @@ ASYNC_URL = settings.DATABASE_URL
 
 EMBED_BATCH_SIZE = 50
 MAX_EMBED_IN_FLIGHT = 5
+EMBEDDING_DIMENSIONS = 768
 
 
 def get_vector_store():
@@ -20,6 +21,7 @@ def get_vector_store():
         connection=SYNC_URL,
         collection_name=COLLECTION,
         use_jsonb=True,
+        embedding_length=EMBEDDING_DIMENSIONS,
         create_extension=False,
         async_mode=False,
     )
@@ -31,6 +33,7 @@ def get_async_vector_store():
         connection=ASYNC_URL,
         collection_name=COLLECTION,
         use_jsonb=True,
+        embedding_length=EMBEDDING_DIMENSIONS,
         create_extension=False,
         async_mode=True,
     )
@@ -41,13 +44,13 @@ async def _embed_batch(texts: list[str], sem: asyncio.Semaphore):
         return await embeddings.aembed_documents(texts)
 
 
-async def ingest_pdf(pdf_path: str):
+async def ingest_pdf(pdf_path: str, user_id: int):
     chunks = chunk_docs(load_pdf(pdf_path))
     if not chunks:
         return None
 
     texts = [c.page_content for c in chunks]
-    metadatas = [c.metadata for c in chunks]
+    metadatas = [{**c.metadata, "user_id": str(user_id)} for c in chunks]
 
     batches = [texts[i:i + EMBED_BATCH_SIZE]
                for i in range(0, len(texts), EMBED_BATCH_SIZE)]
@@ -60,12 +63,14 @@ async def ingest_pdf(pdf_path: str):
     return store
 
 
-def retrieve(query: str, k: int = 4):
-    return get_vector_store().similarity_search(query, k=k)
+def retrieve(query: str, k: int = 4, user_id: int = None):
+    return get_vector_store().similarity_search(
+        query, k=k, filter={"user_id": str(user_id)}
+    )
 
 
-def retrieve_chunks(query: str, k: int = 4):
-    docs = retrieve(query, k=k)
+def retrieve_chunks(query: str, k: int = 4, user_id: int = None):
+    docs = retrieve(query, k=k, user_id=user_id)
 
     chunks = []
 

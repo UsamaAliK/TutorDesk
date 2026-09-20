@@ -5,5 +5,6 @@ from backend.config import settings
 
 
 embeddings=GoogleGenerativeAIEmbeddings(
-    model=settings.embedding_model
+    model=settings.embedding_model,
+    output_dimensionality=768
 )
