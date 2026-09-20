@@ -26,8 +26,12 @@
 
     <main class="chat-workspace">
       <header class="chat-header"><button class="menu-button" type="button" aria-label="Open menu">☰</button><div><h1>Understanding photosynthesis</h1><span class="mode-badge">📚 Course Material</span></div><button class="sources-toggle" type="button" aria-expanded="true">Sources <span>›</span></button></header>
-      <section class="empty-thread" aria-label="Conversation messages"><div class="thread-welcome"><div class="welcome-icon">✦</div><h2>How can I help you teach today?</h2><p>Ask about your course material, create an activity, or research a topic from the web.</p></div></section>
-      <section class="composer-placeholder" aria-label="Message composer"><div class="composer-preview"><span>Ask a question about your material…</span><button type="button" aria-label="Attach PDF">⌇</button><button type="button" aria-label="Send message">↑</button></div><small>Upload a PDF or ask anything. TutorDesk will cite sources when available.</small></section>
+      <section class="message-thread" aria-label="Conversation messages" aria-live="polite"><div class="thread-welcome"><div class="welcome-icon">✦</div><h2>How can I help you teach today?</h2><p>Ask about your course material, create an activity, or research a topic from the web.</p></div></section>
+      <section class="composer" aria-label="Message composer">
+        <div class="upload-dropzone" hidden><span>Drop a PDF here to upload</span></div>
+        <form class="message-form"><label class="sr-only" for="message-input">Your message</label><textarea id="message-input" rows="1" placeholder="Ask a question about your material…"></textarea><input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden><button class="attach-button" type="button" aria-label="Upload PDF" title="Upload PDF">⌇</button><button class="send-button" type="submit" aria-label="Send message" title="Send message">↑</button></form>
+        <p class="upload-status" role="status" aria-live="polite"></p><small>Upload a PDF or ask anything. PDF files up to 20 MB.</small>
+      </section>
     </main>
 
     <aside class="sources-sidebar" aria-label="Sources"><header><h2>Sources</h2><button type="button" aria-label="Close sources">×</button></header><div class="source-card"><span class="source-icon">▤</span><div><strong>Plant Biology — Chapter 4.pdf</strong><small>Uploaded 2 days ago</small></div></div><div class="source-card"><span class="source-icon">◎</span><div><strong>Photosynthesis</strong><a href="https://example.com">example.com</a></div></div></aside>

@@ -96,6 +96,76 @@
 (() => {
   if (!document.body.classList.contains('app-page')) return;
 
+  const token = localStorage.getItem('tutordesk_token');
+  if (!token) { window.location.replace('/'); return; }
+  const apiBase = document.querySelector('meta[name="api-base"]')?.content.replace(/\/$/, '') || '';
+  const thread = document.querySelector('.message-thread');
+  const welcome = thread.querySelector('.thread-welcome');
+  const form = document.querySelector('.message-form');
+  const input = document.querySelector('#message-input');
+  const fileInput = document.querySelector('#pdf-input');
+  const attach = document.querySelector('.attach-button');
+  const send = document.querySelector('.send-button');
+  const composer = document.querySelector('.composer');
+  const dropzone = document.querySelector('.upload-dropzone');
+  const status = document.querySelector('.upload-status');
+  let conversationId = null;
+
+  function authHeaders(extra = {}) { return { Authorization: `Bearer ${token}`, ...extra }; }
+  function setStatus(message = '', isError = false) { status.textContent = message; status.classList.toggle('error', isError); }
+  function scrollThread() { thread.scrollTop = thread.scrollHeight; }
+  function timestamp() { return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date()); }
+  function addMessage(role, text, typing = false) {
+    welcome?.remove();
+    const item = document.createElement('article');
+    item.className = `message ${role}${typing ? ' typing' : ''}`;
+    const avatar = document.createElement('span'); avatar.className = 'message-avatar'; avatar.textContent = role === 'user' ? 'You' : 'TD';
+    const content = document.createElement('div'); content.className = 'message-content';
+    const bubble = document.createElement('div'); bubble.className = 'message-bubble'; bubble.textContent = text;
+    const time = document.createElement('time'); time.className = 'message-time'; time.textContent = typing ? '' : timestamp();
+    content.append(bubble, time); item.append(avatar, content); thread.append(item); scrollThread();
+    return item;
+  }
+  function resizeInput() { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 140)}px`; }
+  async function apiError(response) { const body = await response.json().catch(() => ({})); if (response.status === 401) { localStorage.removeItem('tutordesk_token'); window.location.assign('/'); } return body.detail || 'Request failed. Please try again.'; }
+
+  input.addEventListener('input', resizeInput);
+  input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); } });
+  attach.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => uploadFile(fileInput.files[0]));
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault(); const query = input.value.trim(); if (!query || send.disabled) return;
+    setStatus(); addMessage('user', query); input.value = ''; resizeInput(); send.disabled = true;
+    const typing = addMessage('assistant', 'TutorDesk is thinking…', true);
+    try {
+      const response = await fetch(`${apiBase}/ask`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ query, conversation_id: conversationId }) });
+      if (!response.ok) throw new Error(await apiError(response));
+      const body = await response.json(); conversationId = body.conversation_id || conversationId;
+      typing.remove(); addMessage('assistant', body.response || 'I could not generate a response.');
+    } catch (error) { typing.remove(); addMessage('assistant', error.message || 'Unable to reach TutorDesk.'); }
+    finally { send.disabled = false; input.focus(); }
+  });
+  async function uploadFile(file) {
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) return setStatus('Please select a PDF file.', true);
+    if (file.size > 20 * 1024 * 1024) return setStatus('PDF must be 20 MB or smaller.', true);
+    attach.disabled = true; setStatus(`Uploading ${file.name}…`);
+    try {
+      const data = new FormData(); data.append('file', file);
+      const response = await fetch(`${apiBase}/upload`, { method: 'POST', headers: authHeaders(), body: data });
+      if (!response.ok) throw new Error(await apiError(response));
+      setStatus(`${file.name} uploaded and indexed successfully.`);
+    } catch (error) { setStatus(error.message || 'Upload failed. Please try again.', true); }
+    finally { attach.disabled = false; fileInput.value = ''; }
+  }
+  ['dragenter', 'dragover'].forEach((name) => composer.addEventListener(name, (event) => { event.preventDefault(); composer.classList.add('drag-over'); dropzone.hidden = false; }));
+  ['dragleave', 'drop'].forEach((name) => composer.addEventListener(name, (event) => { event.preventDefault(); composer.classList.remove('drag-over'); dropzone.hidden = true; }));
+  composer.addEventListener('drop', (event) => uploadFile(event.dataTransfer.files[0]));
+})();
+
+(() => {
+  if (!document.body.classList.contains('app-page')) return;
+
   const sidebar = document.querySelector('.conversation-sidebar');
   const sources = document.querySelector('.sources-sidebar');
   const scrim = document.querySelector('.sidebar-scrim');
