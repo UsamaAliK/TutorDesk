@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="TutorDesk — your AI teaching assistant.">
+  <meta name="api-base" content="">
   <title>TutorDesk | AI Teaching Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,18 +34,22 @@
         <div class="mobile-brand brand"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 45h44M16 45V19h32v26" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><path d="M21 30c4-3 8-3 11 0v12c-3-3-7-3-11 0V30Zm22 0c-4-3-8-3-11 0v12c3-3 7-3 11 0V30Z" fill="#F5F3F0" stroke="currentColor" stroke-width="2"/></svg><span>TutorDesk</span></div>
         <header><p class="eyebrow">Welcome back</p><h2>Continue learning</h2><p>Sign in to pick up where you left off.</p></header>
         <div class="tabs" role="tablist" aria-label="Account options">
-          <button class="active" type="button" role="tab" aria-selected="true">Sign In</button>
-          <button type="button" role="tab" aria-selected="false">Sign Up</button>
+          <button class="active" type="button" role="tab" aria-selected="true" data-auth-mode="signin">Sign In</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-mode="signup">Sign Up</button>
         </div>
-        <form class="auth-form" novalidate>
+        <form class="auth-form" novalidate data-auth-form>
           <label for="email">Email address</label>
-          <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required>
-          <div class="field-label"><label for="password">Password</label><a href="#forgot-password">Forgot password?</a></div>
-          <input id="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
-          <button class="submit" type="submit">Sign In <span aria-hidden="true">→</span></button>
-          <p class="error" role="alert" hidden></p>
+          <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+          <div class="field-label"><label for="password">Password</label><a href="#forgot-password" data-forgot-password>Forgot password?</a></div>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required>
+          <div class="confirm-field" hidden>
+            <label for="confirm-password">Confirm password</label>
+            <input id="confirm-password" name="confirm-password" type="password" autocomplete="new-password" placeholder="Repeat your password">
+          </div>
+          <button class="submit" type="submit"><span data-submit-label>Sign In</span> <span aria-hidden="true" data-submit-icon>→</span></button>
+          <p class="error" role="alert" aria-live="polite" hidden></p>
         </form>
-        <p class="switch">New to TutorDesk? <button type="button">Create an account</button></p>
+        <p class="switch"><span data-switch-copy>New to TutorDesk?</span> <button type="button" data-switch-mode>Create an account</button></p>
       </div>
     </section>
   </main>
