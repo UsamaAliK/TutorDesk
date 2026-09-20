@@ -7,6 +7,7 @@ from backend.schemas.chat import ChatRequest
 from backend.schemas.auth import SignupRequest,LoginRequest,TokenResponse
 from backend.rag.vector_store import ingest_pdf
 from backend.agent.agent import agent
+from backend.agent.response import final_text, collect_sources
 from backend.db.database import get_db
 from backend.db.models import User
 from backend.security import hash_password,verify_password,create_access_token
@@ -66,12 +67,20 @@ async def me(user:User=Depends(get_current_user)):
 
 @app.post("/ask")
 def ask(request:ChatRequest, user:User=Depends(get_current_user)):
-    response=agent.invoke({
-        "messages":[
-            ("user", request.query)
-        ]
-    })
-    return response
+    state = agent.invoke(
+        {
+            "messages":[
+                ("user", request.query)
+            ]
+        },
+        config={"configurable": {"user_id": user.id}}
+    )
+
+    messages = state["messages"]
+    return {
+        "response": final_text(messages[-1].content),
+        "sources": collect_sources(messages),
+    }
 
 
 @app.post("/upload")
@@ -96,7 +105,7 @@ async def upload_pdf(file:UploadFile=File(...), user:User=Depends(get_current_us
         buffer.write(data)
 
     try:
-        await ingest_pdf(tmp_path)
+        await ingest_pdf(tmp_path, user.id)
     finally:
         os.remove(tmp_path)
 
