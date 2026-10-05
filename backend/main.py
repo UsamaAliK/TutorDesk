@@ -10,6 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.schemas.chat import AskRequest, ConversationCreate
 from backend.schemas.auth import SignupRequest,LoginRequest,TokenResponse
 from backend.rag.vector_store import ingest_pdf
+from backend.voice.transcribe import (
+    TranscribeFailed,
+    TranscribeRateLimited,
+    transcribe_audio,
+    normalize_mime_type,
+    is_supported_mime_type,
+)
 from backend.agent.agent import agent
 from backend.agent.response import final_text, collect_sources
 from backend.db.database import get_db
@@ -203,7 +210,32 @@ async def upload_pdf(file:UploadFile=File(...), user:User=Depends(get_current_us
         os.remove(tmp_path)
 
     return {
-        "Filename":file.filename,
+        "filename":file.filename,
         "storage_path":storage_path,
-        "Message":"PDF uploaded and indexed successfully"
+        "message":"PDF uploaded and indexed successfully"
     }
+
+
+@app.post("/transcribe")
+async def transcribe(file:UploadFile=File(...), user:User=Depends(get_current_user)):
+    mime_type=normalize_mime_type(file.content_type or "")
+    if not is_supported_mime_type(mime_type):
+        raise HTTPException(status_code=400, detail="Unsupported audio format")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty audio recording")
+    if len(data) > settings.MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=400, detail="Recording too large (max 14 MB)")
+
+    try:
+        text = await asyncio.to_thread(transcribe_audio, data, mime_type)
+    except TranscribeRateLimited:
+        raise HTTPException(status_code=429, detail="Transcription is busy. Please try again in a moment.")
+    except TranscribeFailed as error:
+        raise HTTPException(status_code=502, detail=str(error))
+
+    if not text:
+        raise HTTPException(status_code=422, detail="No speech detected in the recording")
+
+    return {"text":text, "mime_type":mime_type}
