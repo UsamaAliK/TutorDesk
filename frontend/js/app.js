@@ -108,11 +108,18 @@
   const input = document.querySelector('#message-input');
   const fileInput = document.querySelector('#pdf-input');
   const attach = document.querySelector('.attach-button');
+  const mic = document.querySelector('.mic-button');
   const send = document.querySelector('.send-button');
   const composer = document.querySelector('.composer');
   const dropzone = document.querySelector('.upload-dropzone');
   const status = document.querySelector('.upload-status');
   let conversationId = null;
+  const MAX_RECORDING_SECONDS = 120;
+  const AUDIO_MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/aac'];
+  let recorder = null;
+  let audioStream = null;
+  let recordTimer = null;
+  let recordSeconds = 0;
 
   function authHeaders(extra = {}) { return { Authorization: `Bearer ${token}`, ...extra }; }
   function setStatus(message = '', isError = false) { status.textContent = message; status.classList.toggle('error', isError); }
@@ -190,6 +197,77 @@
     } catch (error) { setStatus(error.message || 'Upload failed. Please try again.', true); }
     finally { attach.disabled = false; fileInput.value = ''; }
   }
+  function pickAudioMimeType() {
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+    return AUDIO_MIME_CANDIDATES.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+  }
+  function stopAudioStream() {
+    audioStream?.getTracks().forEach((track) => track.stop());
+    audioStream = null;
+  }
+  function endRecording() {
+    if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
+    mic.classList.remove('is-recording');
+    mic.setAttribute('aria-label', 'Record voice message');
+    stopAudioStream();
+  }
+  function startRecordingTicker() {
+    recordSeconds = 0;
+    recordTimer = setInterval(() => {
+      recordSeconds += 1;
+      const remaining = MAX_RECORDING_SECONDS - recordSeconds;
+      setStatus(`Recording ${recordSeconds}s — press the mic again to stop.`);
+      if (remaining <= 5 && remaining > 0) setStatus(`Recording ${recordSeconds}s — stopping in ${remaining}s.`);
+      if (remaining <= 0) stopRecording();
+    }, 1000);
+  }
+  async function startRecording() {
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) return setStatus('Voice recording is not supported in this browser.', true);
+    try {
+      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      return setStatus('Microphone access was denied. Allow it in your browser settings to use voice messages.', true);
+    }
+    const mimeType = pickAudioMimeType();
+    let activeRecorder;
+    try {
+      activeRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
+    } catch (error) {
+      stopAudioStream();
+      return setStatus('This browser could not start a recording.', true);
+    }
+    const chunks = [];
+    activeRecorder.addEventListener('dataavailable', (event) => { if (event.data.size) chunks.push(event.data); });
+    activeRecorder.addEventListener('stop', () => uploadRecording(new Blob(chunks, { type: activeRecorder.mimeType || mimeType || 'audio/webm' })));
+    activeRecorder.start();
+    recorder = activeRecorder;
+    mic.classList.add('is-recording');
+    mic.setAttribute('aria-label', 'Stop recording');
+    startRecordingTicker();
+  }
+  function stopRecording() {
+    if (!recorder || recorder.state === 'inactive') return;
+    recorder.stop();
+    recorder = null;
+    setStatus('Transcribing…');
+    endRecording();
+  }
+  async function uploadRecording(blob) {
+    mic.disabled = true;
+    try {
+      const data = new FormData(); data.append('file', blob, 'recording');
+      const response = await fetch(`${apiBase}/transcribe`, { method: 'POST', headers: authHeaders(), body: data });
+      if (!response.ok) throw new Error(await apiError(response));
+      const body = await response.json();
+      const text = (body.text || '').trim();
+      if (!text) throw new Error('No speech detected in the recording.');
+      input.value = input.value.trim() ? `${input.value.trim()} ${text}` : text;
+      resizeInput(); input.focus();
+      setStatus('Transcribed — review it and send when ready.');
+    } catch (error) { setStatus(error.message || 'Transcription failed. Please try again.', true); }
+    finally { mic.disabled = false; }
+  }
+  mic.addEventListener('click', () => { if (recorder) stopRecording(); else startRecording(); });
   ['dragenter', 'dragover'].forEach((name) => composer.addEventListener(name, (event) => { event.preventDefault(); composer.classList.add('drag-over'); dropzone.hidden = false; }));
   ['dragleave', 'drop'].forEach((name) => composer.addEventListener(name, (event) => { event.preventDefault(); composer.classList.remove('drag-over'); dropzone.hidden = true; }));
   composer.addEventListener('drop', (event) => uploadFile(event.dataTransfer.files[0]));

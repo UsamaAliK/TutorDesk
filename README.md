@@ -20,6 +20,15 @@ AI teaching assistant for teachers. Upload your own course material and ask ques
 - The agent picks the right knowledge source per request (both if needed, neither for basic concepts) and generates the final educational content itself.
 - Scoped to the authenticated user (`user_id` passed into tool config), so each person only retrieves their own uploads.
 
+### 4. Voice Input (Speech to Text)
+- The composer has a mic button. It records with `MediaRecorder`, posts the audio to `/transcribe`, and drops the transcript into the message box for review before sending. The agent, `/ask`, and the database are untouched — a transcript is just a `query` string.
+- Transcription runs on Gemini audio input (`google-genai`, same `GOOGLE_API_KEY`), so it is not real-time. Recording auto-stops at 120s.
+- Gemini is asked for structured JSON (`has_speech` + `text`) and the transcript is discarded when `has_speech` is false. **This guard is required:** with a plain "transcribe this" prompt, Gemini reliably invents a plausible question from pure silence, which would otherwise be inserted into the composer as if the teacher had said it.
+- Supported audio MIME types are allowlisted in `backend/config.py` because browsers record different containers (Chrome `audio/webm`, Safari `audio/mp4`). Size is capped at 14 MB since inline audio is base64-encoded (4/3 expansion) against Gemini's 20 MB request limit.
+- Errors: `422` no speech, `429` Gemini rate limit, `502` transcription unavailable.
+- **Quota note:** the Gemini free tier allows 5 requests/minute on `gemini-2.5-flash`, shared with `/ask` and `/upload`. Voice messages compete with chat for that budget.
+- Full implementation notes, the issues found while building it, and the reasoning behind each decision: [`docs/VOICE_INPUT.md`](docs/VOICE_INPUT.md).
+
 ## Tech Stack
 - Python / FastAPI / Pydantic / Uvicorn
 - PostgreSQL (Supabase) with **PGVector** store, async SQLAlchemy, **Alembic** migrations
@@ -28,6 +37,7 @@ AI teaching assistant for teachers. Upload your own course material and ask ques
 - LangChain (agent tool calling, prompts)
 - RAG: PyMuPDF, `RecursiveCharacterTextSplitter`, Gemini embeddings, `langchain-postgres` PGVector
 - Web research: `langchain-tavily`, trafilatura
+- Speech to text: Gemini audio input via `google-genai` (frontend `MediaRecorder`)
 - File storage: Supabase Storage (`uploads` bucket)
 
 ## Project Structure
@@ -51,6 +61,8 @@ TutorDesk/
 │   │   └── research.py         # research_topic: search → top 3 → fetch → clean → {research, sources}
 │   ├── llm/
 │   │   └── model.py            # llm (Gemini)
+│   ├── voice/                  # speech to text
+│   │   └── transcribe.py       # Gemini audio → transcript (has_speech gate)
 │   ├── db/
 │   │   ├── database.py         # async engine / SessionLocal / get_db
 │   │   └── models.py           # User, Conversation, Message, Upload
@@ -84,6 +96,7 @@ TutorDesk/
 | GET  | `/app`                      | TutorDesk authenticated workspace |
 | GET  | `/health`                   | API health check |
 | POST | `/upload`                   | Upload PDF (max 20 MB), index + embed into PGVector |
+| POST | `/transcribe`               | Speech to text — audio recording (max 14 MB) → Gemini transcript; `422` when no speech is detected |
 | POST | `/ask`                      | Agent — picks rag/search tool, then generates content; `conversation_id` optional (omitted → new conversation) |
 | POST | `/conversations`            | Create an empty conversation (title) |
 | GET  | `/conversations`            | List current user's conversations |
@@ -121,8 +134,9 @@ SUPABASE_SERVICE_ROLE_KEY=...
 2. **Phase 2 — Web Research** ✅ Tavily search → top-3 source selection → full-page fetch → content cleaning → research data + source URLs (no LLM in the research path).
 3. **Phase 3 — Agent** ✅ Tool calling (RAG / web search) + per-user scoping — TutorDesk picks the right knowledge source and then decides what content to generate.
 4. **Phase 4 — Auth, Users, Conversations** ✅ JWT auth, signup/login, per-user conversation/messages/upload isolation.
-5. **Phase 5 — Frontend** (current) HTML/CSS/JS chat UI — sidebar conversation list, message thread, new chat (`conversation_id` optional), upload.
-6. **Phase 6 — Production hardening** Rate limits, caching, background jobs & queues, logging, monitoring, streaming.
+5. **Phase 5 — Frontend** ✅ HTML/CSS/JS chat UI — sidebar conversation list, message thread, new chat (`conversation_id` optional), upload, mic button.
+6. **Phase 6 — Voice input** ✅ `MediaRecorder` → `POST /transcribe` → Gemini audio transcript, dropped into the composer with a `has_speech` silence guard.
+7. **Phase 7 — Production hardening** Rate limits, caching, background jobs & queues, logging, monitoring, streaming.
 
 ## Development Philosophy
 Build → Test → Understand → Connect → Improve. Get a complete skeleton working end-to-end before adding production complexity.

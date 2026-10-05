@@ -245,3 +245,5 @@ backend/data/
 
 # Test artifacts
 retrieval_results.json
+/docs
+/docs/VOICE_INPUT.md
