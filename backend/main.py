@@ -17,8 +17,7 @@ from backend.voice.transcribe import (
     normalize_mime_type,
     is_supported_mime_type,
 )
-from backend.agent.agent import agent
-from backend.agent.response import final_text, collect_sources
+from backend.graph import graph
 from backend.db.database import get_db
 from backend.db.models import User, Conversation, Message
 from backend.security import hash_password,verify_password,create_access_token
@@ -92,21 +91,26 @@ async def ask(request:AskRequest, user:User=Depends(get_current_user), db:AsyncS
     db.add(Message(conversation_id=conversation_id, role="user", content=request.query))
     await db.commit()
 
-    state = await asyncio.to_thread(
-        agent.invoke,
-        {"messages": [("user", request.query)]},
-        config={"configurable": {"user_id": user.id}},
+    result = await asyncio.to_thread(
+        graph.invoke,
+        {
+            "query": request.query,
+            "user_id": user.id,
+            "retry_count": 0,
+            "max_retries": settings.MAX_WEB_RETRIES,
+        },
     )
 
-    messages = state["messages"]
-    answer = final_text(messages[-1].content)
+    answer = result.get("answer", "")
+    sources = result.get("all_sources", [])
+
     db.add(Message(conversation_id=conversation_id, role="assistant", content=answer))
     await db.commit()
 
     return {
         "conversation_id": conversation_id,
         "response": answer,
-        "sources": collect_sources(messages),
+        "sources": sources,
     }
 
 
