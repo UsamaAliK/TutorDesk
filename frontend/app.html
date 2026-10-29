@@ -230,7 +230,7 @@
                   </div>
                   <div class="distributor-inputs three-cols">
                     <div class="dist-input-col">
-                      <label for="form-quiz-total">Total Questions</label>
+                      <label for="form-quiz-total">Total Written Questions</label>
                       <input type="number" id="form-quiz-total" min="0" max="50" value="5">
                     </div>
                     <div class="dist-input-col">
@@ -242,7 +242,7 @@
                       <input type="number" id="form-quiz-long" min="0" max="50" value="2">
                     </div>
                   </div>
-                  <small class="distributor-hint" id="distributor-hint">Short Answer + Long Answer must equal Total Written Questions.</small>
+                  <small class="distributor-hint" id="distributor-hint">MCQs are counted separately. Short Answer + Long Answer must equal Total Written Questions.</small>
                 </div>
               </div>
 
@@ -259,9 +259,13 @@
                     </select>
                   </div>
                   <div class="form-group">
-                    <label for="form-assignment-tasks-count">Number of Tasks / Problems</label>
+                    <label for="form-assignment-tasks-count">Number of Tasks / Problems (excluding MCQs)</label>
                     <input type="number" id="form-assignment-tasks-count" min="1" max="25" value="5">
                   </div>
+                </div>
+                <div class="form-group">
+                  <label for="form-assignment-mcqs">Number of MCQs (counted separately)</label>
+                  <input type="number" id="form-assignment-mcqs" min="0" max="50" value="0">
                 </div>
                 <div class="form-group">
                   <label>Allowed Task Types</label>

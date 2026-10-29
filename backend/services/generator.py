@@ -335,7 +335,9 @@ You are TutorDesk, a distinguished educator creating a structured assignment.
 REQUIREMENTS:
 - Educational Level: {educational_level}
 - Difficulty: {difficulty}
-- Total Tasks/Questions: {total_tasks}
+- SECTION A: Exactly {num_mcqs} multiple-choice questions (MCQs). This count is separate and must NOT be included in the task count.
+- If {num_mcqs} is 0, return an empty MCQ array.
+- SECTION B: Exactly {total_tasks} tasks/problems. This count excludes MCQs.
 - Allowed Task Types: {task_types}
 - Output must feature both student-facing problem descriptions AND a complete teacher grading rubric + model answer for every task.
 - Ensure tasks stimulate critical thinking, application of theory, and analytical depth appropriate for {educational_level}.
@@ -350,6 +352,12 @@ REQUIRED JSON STRUCTURE:
   "total_marks": {total_marks_str},
   "deadline_days": {deadline_days_str},
   "instructions_for_students": "Detailed guidelines on submission format, academic integrity, and expectations...",
+  "mcq_section": {{
+    "title": "Section A: Multiple Choice Questions",
+    "mcqs": [
+      {{"id": "mcq_1", "type": "mcq", "prompt": "Question...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_answer": "A) ...", "explanation": "...", "marks": 1}}
+    ]
+  }},
   "tasks": [
     {{
       "id": "t1",
@@ -386,6 +394,7 @@ async def generate_assignment(request: AssignmentGenerateRequest, user_id: int, 
         educational_level=request.educational_level.value,
         difficulty=request.difficulty.value,
         total_tasks=request.total_tasks,
+        num_mcqs=request.num_mcqs,
         task_types=", ".join(request.task_types),
         total_marks_str=str(request.total_marks) if request.total_marks else "50",
         deadline_days_str=str(request.deadline_days) if request.deadline_days else "7",
@@ -396,7 +405,8 @@ Subject: {request.subject}
 Topic: {request.topic}
 Educational Level: {request.educational_level.value}
 Difficulty: {request.difficulty.value}
-Total Tasks: {request.total_tasks}
+Section A MCQs: {request.num_mcqs} (separate count; do not include in task count)
+Section B Tasks / Problems: {request.total_tasks}
 Selected Task Types: {request.task_types}
 Student Instructions Customization: {request.instructions_for_students or 'Standard format'}
 Include Rubric: {request.include_rubric}
@@ -539,18 +549,44 @@ Return a single JSON object for this section matching keys (id, title, time_minu
         content["sections"][target_idx] = new_sec
 
     elif material.type == "assignment" and "tasks" in content:
-        target_idx = None
-        current_item = None
-        for i, t in enumerate(content["tasks"]):
-            if str(t.get("id")) == item_id or str(i + 1) == item_id:
-                target_idx = i
-                current_item = t
-                break
+        if item_type == "mcq" or "mcq" in item_id.lower():
+            mcqs = content.get("mcq_section", {}).get("mcqs", [])
+            target_idx = next(
+                (i for i, q in enumerate(mcqs) if str(q.get("id")) == item_id or str(i + 1) == item_id),
+                None,
+            )
+            if target_idx is None:
+                raise HTTPException(status_code=404, detail=f"MCQ '{item_id}' not found in assignment.")
+            current_item = mcqs[target_idx]
+            prompt = f"""
+Regenerate this specific assignment multiple-choice question.
+Topic: {material.topic}
+Level: {material.educational_level}
+Current MCQ to Replace:
+{json.dumps(current_item, indent=2)}
 
-        if target_idx is None:
-            raise HTTPException(status_code=404, detail=f"Task '{item_id}' not found in assignment.")
+Teacher Guidance: {guidance}
 
-        prompt = f"""
+Return one JSON object with keys (id, type, prompt, options, correct_answer, explanation, marks).
+"""
+            resp = await llm.ainvoke([("user", prompt)])
+            new_mcq = _extract_json(resp.content)
+            new_mcq["id"] = current_item["id"]
+            new_mcq["type"] = "mcq"
+            mcqs[target_idx] = new_mcq
+        else:
+            target_idx = None
+            current_item = None
+            for i, t in enumerate(content["tasks"]):
+                if str(t.get("id")) == item_id or str(i + 1) == item_id:
+                    target_idx = i
+                    current_item = t
+                    break
+
+            if target_idx is None:
+                raise HTTPException(status_code=404, detail=f"Task '{item_id}' not found in assignment.")
+
+            prompt = f"""
 Regenerate this specific assignment task.
 Topic: {material.topic}
 Level: {material.educational_level}
@@ -561,10 +597,10 @@ Teacher Guidance: {guidance}
 
 Return a single JSON object for this task matching keys (id, type, title, prompt, marks, model_answer, rubric_criteria).
 """
-        resp = await llm.ainvoke([("user", prompt)])
-        new_task = _extract_json(resp.content)
-        new_task["id"] = current_item["id"]
-        content["tasks"][target_idx] = new_task
+            resp = await llm.ainvoke([("user", prompt)])
+            new_task = _extract_json(resp.content)
+            new_task["id"] = current_item["id"]
+            content["tasks"][target_idx] = new_task
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported item regeneration for material type {material.type}.")
 

@@ -26,15 +26,6 @@ class SourceMode(str, Enum):
     COMBINED = "combined"
 
 
-class AssignmentTaskType(str, Enum):
-    MCQ = "mcq"
-    SHORT_ANSWER = "short_answer"
-    LONG_ANSWER = "long_answer"
-    PROBLEM_SOLVING = "problem_solving"
-    CASE_STUDY = "case_study"
-    PROJECT = "project"
-
-
 # ── Lesson Generation Request ──────────────────────────────────────────
 
 class LessonGenerateRequest(BaseModel):
@@ -66,11 +57,11 @@ class QuizGenerateRequest(BaseModel):
     topic: str = Field(..., min_length=2, max_length=250)
     educational_level: EducationalLevel = EducationalLevel.GRADE_9_12
     difficulty: DifficultyLevel = DifficultyLevel.MEDIUM
-    num_mcqs: int = Field(5, ge=0, description="Number of MCQs in Section A")
-    num_short_answer: int = Field(3, ge=0, description="Number of Short-Answer Questions in Section B")
-    num_long_answer: int = Field(2, ge=0, description="Number of Long-Answer Questions in Section B")
-    total_written_questions: Optional[int] = Field(None, ge=0, description="Total written questions in Section B")
-    total_questions: Optional[int] = Field(None, ge=1, description="Total combined items across quiz")
+    num_mcqs: int = Field(5, ge=0, le=50, description="Number of MCQs in Section A")
+    num_short_answer: int = Field(3, ge=0, le=50, description="Number of Short-Answer Questions in Section B")
+    num_long_answer: int = Field(2, ge=0, le=50, description="Number of Long-Answer Questions in Section B")
+    total_written_questions: Optional[int] = Field(None, ge=0, le=100, description="Total written questions in Section B; MCQs are counted separately")
+    total_questions: Optional[int] = Field(None, ge=1, deprecated=True, description="Deprecated legacy combined count; do not use for new clients")
     mcq_options_count: int = Field(4, ge=2, le=6)
     time_limit_minutes: Optional[int] = Field(None, ge=5, le=180)
     total_marks: Optional[int] = Field(None, ge=1)
@@ -91,14 +82,16 @@ class QuizGenerateRequest(BaseModel):
                 f"must equal total written questions ({self.total_written_questions})."
             )
 
+        # Preserve compatibility for older clients. New clients should send
+        # total_written_questions, which deliberately excludes MCQs.
+        if self.total_questions is not None and self.total_questions != self.num_mcqs + written_sum:
+            raise ValueError("Question distribution does not match the deprecated combined total.")
+
         if self.num_mcqs == 0 and written_sum == 0:
             raise ValueError("Quiz must contain at least one MCQ or one written question.")
 
         if self.total_written_questions is None:
             self.total_written_questions = written_sum
-
-        if self.total_questions is None:
-            self.total_questions = self.num_mcqs + written_sum
 
         return self
 
@@ -111,6 +104,7 @@ class AssignmentGenerateRequest(BaseModel):
     educational_level: EducationalLevel = EducationalLevel.GRADE_9_12
     difficulty: DifficultyLevel = DifficultyLevel.MEDIUM
     total_tasks: int = Field(5, ge=1, le=30)
+    num_mcqs: int = Field(0, ge=0, le=50, description="Number of MCQs, counted separately from tasks")
     task_types: List[str] = Field(default_factory=lambda: ["short_answer", "problem_solving"])
     total_marks: Optional[int] = Field(50, ge=1)
     deadline_days: Optional[int] = Field(7, ge=1, le=60)

@@ -255,24 +255,24 @@
   function validateQuizDistributor() {
     if (activeGenerationType !== 'quiz') return true;
     const total = parseInt(quizTotal.value, 10) || 0;
-    const mcqs = parseInt(quizMCQs.value, 10) || 0;
     const short = parseInt(quizShort.value, 10) || 0;
     const long = parseInt(quizLong.value, 10) || 0;
-    const currentSum = mcqs + short + long;
+    const currentSum = short + long;
 
-    if (currentSum === total && total > 0) {
-      distStatus.textContent = `Total: ${total} / ${total} Balanced`;
+    const mcqCount = parseInt(quizMCQs.value, 10) || 0;
+    if (currentSum === total && (total > 0 || mcqCount > 0)) {
+      distStatus.textContent = `Written: ${total} / ${total} Balanced`;
       distStatus.classList.remove('error');
-      distHint.textContent = '✓ Distribution is valid and matches total questions.';
+      distHint.textContent = '✓ Written question counts match. MCQs are counted separately.';
       submitGenBtn.disabled = false;
       return true;
     } else {
       const diff = total - currentSum;
-      distStatus.textContent = `Total: ${currentSum} / ${total}`;
+      distStatus.textContent = `Written: ${currentSum} / ${total}`;
       distStatus.classList.add('error');
       distHint.textContent = diff > 0
-        ? `⚠️ Please allocate ${diff} more question${diff > 1 ? 's' : ''}.`
-        : `⚠️ Distribution exceeds total by ${Math.abs(diff)} question${Math.abs(diff) > 1 ? 's' : ''}.`;
+        ? `⚠️ Please allocate ${diff} more written question${diff > 1 ? 's' : ''}.`
+        : `⚠️ Written question count exceeds total by ${Math.abs(diff)}.`;
       submitGenBtn.disabled = true;
       return false;
     }
@@ -316,7 +316,7 @@
     } else if (activeGenerationType === 'quiz') {
       endpoint = '/materials/quizzes/generate';
       payload.difficulty = document.querySelector('#form-quiz-difficulty').value;
-      payload.total_questions = parseInt(quizTotal.value, 10);
+      payload.total_written_questions = parseInt(quizTotal.value, 10);
       payload.num_mcqs = parseInt(quizMCQs.value, 10);
       payload.num_short_answer = parseInt(quizShort.value, 10);
       payload.num_long_answer = parseInt(quizLong.value, 10);
@@ -327,6 +327,7 @@
       endpoint = '/materials/assignments/generate';
       payload.difficulty = document.querySelector('#form-assignment-difficulty').value;
       payload.total_tasks = parseInt(document.querySelector('#form-assignment-tasks-count').value, 10);
+      payload.num_mcqs = parseInt(document.querySelector('#form-assignment-mcqs').value, 10) || 0;
       const selectedTypes = [...document.querySelectorAll('input[name="task_type"]:checked')].map((cb) => cb.value);
       payload.task_types = selectedTypes.length ? selectedTypes : ['short_answer', 'problem_solving'];
     }
@@ -442,13 +443,21 @@
           <p class="doc-section-body">${content.instructions_for_students || 'Answer all questions carefully.'}</p>
         </div>
       `;
-      (content.questions || []).forEach((q, idx) => {
-        const isMcq = q.type === 'mcq' && q.options?.length;
+      const allQuestions = content.questions || [];
+      const mcqs = content.mcq_section?.mcqs?.length
+        ? content.mcq_section.mcqs
+        : allQuestions.filter((q) => q.type === 'mcq' || q.options?.length);
+      const writtenQuestions = content.questions_section?.questions?.length
+        ? content.questions_section.questions
+        : allQuestions.filter((q) => q.type !== 'mcq' && !q.options?.length);
+
+      const renderQuizQuestions = (questions, label, regenType) => questions.forEach((q, idx) => {
+        const isMcq = (q.type === 'mcq' || q.options?.length) && q.options?.length;
         html += `
           <div class="doc-section-card" data-q-id="${q.id || idx + 1}">
             <div class="doc-section-header">
-              <h3 class="doc-section-title">Question ${idx + 1} (${q.type?.toUpperCase()} — ${q.marks || 1} pt)</h3>
-              <button class="item-regen-btn" type="button" data-regen-type="question" data-item-id="${q.id || idx + 1}">🔄 Regenerate Question</button>
+              <h3 class="doc-section-title">${label} ${idx + 1} (${q.marks || 1} pt)</h3>
+              <button class="item-regen-btn" type="button" data-regen-type="${regenType}" data-item-id="${q.id || idx + 1}">🔄 Regenerate ${label}</button>
             </div>
             <div class="doc-section-body">
               <p contenteditable="true">${q.prompt}</p>
@@ -470,12 +479,46 @@
           </div>
         `;
       });
+
+      if (mcqs.length) {
+        html += '<h3 class="doc-section-title">Section A: Multiple Choice Questions</h3>';
+        renderQuizQuestions(mcqs, 'MCQ', 'mcq');
+      }
+      if (writtenQuestions.length) {
+        html += '<h3 class="doc-section-title">Section B: Written Questions</h3>';
+        renderQuizQuestions(writtenQuestions, 'Question', 'question');
+      }
     } else if (mtype === 'assignment') {
       html += `
         <div class="doc-section-card">
           <p class="doc-section-body">${content.instructions_for_students || 'Complete the following tasks.'}</p>
         </div>
       `;
+      const assignmentMcqs = content.mcq_section?.mcqs || [];
+      if (assignmentMcqs.length) {
+        html += '<h3 class="doc-section-title">Section A: Multiple Choice Questions</h3>';
+        assignmentMcqs.forEach((q, idx) => {
+          html += `
+            <div class="doc-section-card" data-q-id="${q.id || idx + 1}">
+              <div class="doc-section-header">
+                <h3 class="doc-section-title">MCQ ${idx + 1} (${q.marks || 1} pt)</h3>
+                <button class="item-regen-btn" type="button" data-regen-type="mcq" data-item-id="${q.id || idx + 1}">🔄 Regenerate MCQ</button>
+              </div>
+              <div class="doc-section-body">
+                <p contenteditable="true">${q.prompt || ''}</p>
+                <ul class="quiz-options-list">
+                  ${(q.options || []).map((opt) => {
+                    const isCorrect = isTeacher && (opt === q.correct_answer || opt.startsWith(q.correct_answer?.slice(0, 2)));
+                    return `<li class="quiz-opt-item ${isCorrect ? 'is-correct' : ''}">${opt}</li>`;
+                  }).join('')}
+                </ul>
+                ${isTeacher ? `<div class="doc-teacher-box"><strong>Teacher Answer Key:</strong> ${q.correct_answer || 'See criteria'}${q.explanation ? `<br><strong>Explanation:</strong> ${q.explanation}` : ''}</div>` : ''}
+              </div>
+            </div>
+          `;
+        });
+      }
+      html += '<h3 class="doc-section-title">Section B: Tasks / Problems</h3>';
       (content.tasks || []).forEach((t, idx) => {
         html += `
           <div class="doc-section-card" data-t-id="${t.id || idx + 1}">

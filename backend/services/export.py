@@ -135,6 +135,20 @@ def _format_material_text(material: Material, audience: str = "teacher") -> list
         if content.get("instructions_for_students"):
             blocks.append(("Instructions", content["instructions_for_students"]))
 
+        mcqs = content.get("mcq_section", {}).get("mcqs", [])
+        if mcqs:
+            mcq_blocks = []
+            for i, q in enumerate(mcqs, 1):
+                item_text = f"MCQ {i}. {q.get('prompt', '')}"
+                if q.get("options"):
+                    item_text += "\n" + "\n".join(str(option) for option in q["options"])
+                if is_teacher:
+                    item_text += f"\nCorrect Answer: {q.get('correct_answer', 'N/A')}"
+                    if q.get("explanation"):
+                        item_text += f"\nExplanation: {q['explanation']}"
+                mcq_blocks.append(item_text)
+            blocks.append(("Section A: Multiple Choice Questions", "\n\n".join(mcq_blocks)))
+
         tasks = content.get("tasks", [])
         t_blocks = []
         teacher_solutions = []
@@ -153,7 +167,7 @@ def _format_material_text(material: Material, audience: str = "teacher") -> list
                     )
                 teacher_solutions.append(sol)
 
-        blocks.append(("Tasks", "\n\n".join(t_blocks)))
+        blocks.append(("Section B: Tasks / Problems", "\n\n".join(t_blocks)))
 
         if is_teacher and teacher_solutions:
             blocks.append(("Teacher Solutions & Grading Rubric", "\n\n".join(teacher_solutions)))
