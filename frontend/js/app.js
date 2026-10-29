@@ -1,3 +1,4 @@
+// ── Auth Handling (Login & Signup) ───────────────────────────────────
 (() => {
   const form = document.querySelector('[data-auth-form]');
   if (!form) return;
@@ -58,7 +59,7 @@
 
   tabs.forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.authMode)));
   switchButton.addEventListener('click', () => setMode(mode === 'signup' ? 'signin' : 'signup'));
-  document.querySelector('[data-forgot-password]').addEventListener('click', (event) => {
+  document.querySelector('[data-forgot-password]')?.addEventListener('click', (event) => {
     event.preventDefault();
     setError('Password reset is not available yet. Please contact your administrator.');
   });
@@ -97,16 +98,526 @@
   });
 })();
 
+// ── Application Workspace & Generator Controllers ────────────────────
 (() => {
   if (!document.body.classList.contains('app-page')) return;
 
   const token = localStorage.getItem('tutordesk_token');
   if (!token) { window.location.replace('/'); return; }
   const apiBase = document.querySelector('meta[name="api-base"]')?.content.replace(/\/$/, '') || '';
+  const headers = { Authorization: `Bearer ${token}` };
+
+  function authHeaders(extra = {}) { return { Authorization: `Bearer ${token}`, ...extra }; }
+  async function apiError(response) {
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      localStorage.removeItem('tutordesk_token');
+      window.location.assign('/');
+    }
+    return body.detail || 'Request failed. Please try again.';
+  }
+
+  // ── Views Navigation ────────────────────────────────────────────────
+  const viewNavItems = document.querySelectorAll('[data-view-target]');
+  const appViews = document.querySelectorAll('.app-view');
+  const viewTitle = document.querySelector('#workspace-view-title');
+  let currentAudience = 'teacher';
+  let activeMaterial = null;
+
+  function switchView(target) {
+    viewNavItems.forEach((btn) => btn.classList.toggle('is-active', btn.dataset.viewTarget === target));
+    appViews.forEach((view) => {
+      const active = view.id === `view-${target}`;
+      view.classList.toggle('is-active', active);
+      view.hidden = !active;
+    });
+
+    if (target === 'generator') {
+      viewTitle.textContent = 'Educational Content Generator';
+    } else if (target === 'library') {
+      viewTitle.textContent = 'Saved Materials Library';
+      loadLibraryMaterials();
+    } else if (target === 'chat') {
+      viewTitle.textContent = 'Teaching Assistant Chat';
+    }
+    // Mobile sidebar close on view switch
+    document.querySelector('.conversation-sidebar')?.classList.remove('is-open');
+    document.querySelector('.sidebar-scrim')?.classList.remove('is-visible');
+  }
+
+  viewNavItems.forEach((btn) => btn.addEventListener('click', () => switchView(btn.dataset.viewTarget)));
+
+  // ── Generator Dynamic Form Modal ────────────────────────────────────
+  const modal = document.querySelector('#generator-modal');
+  const modalBadge = document.querySelector('#modal-type-badge');
+  const modalTitle = document.querySelector('#modal-title');
+  const closeModalBtn = document.querySelector('#close-modal-btn');
+  const cancelFormBtn = document.querySelector('#cancel-form-btn');
+  const genForm = document.querySelector('#generator-form');
+  const submitGenBtn = document.querySelector('#submit-generate-btn');
+  const btnText = submitGenBtn.querySelector('.btn-text');
+  const btnSpinner = submitGenBtn.querySelector('.btn-spinner');
+
+  const fieldsLesson = document.querySelector('#fields-lesson');
+  const fieldsQuiz = document.querySelector('#fields-quiz');
+  const fieldsAssignment = document.querySelector('#fields-assignment');
+
+  let activeGenerationType = 'lesson';
+
+  function openGeneratorForm(type) {
+    activeGenerationType = type;
+    modal.hidden = false;
+
+    fieldsLesson.hidden = type !== 'lesson';
+    fieldsQuiz.hidden = type !== 'quiz';
+    fieldsAssignment.hidden = type !== 'assignment';
+
+    if (type === 'lesson') {
+      modalBadge.textContent = 'Lesson Plan';
+      modalTitle.textContent = 'Configure Lesson Plan';
+      btnText.textContent = 'Generate Lesson Plan';
+    } else if (type === 'quiz') {
+      modalBadge.textContent = 'Assessment Quiz';
+      modalTitle.textContent = 'Configure Assessment Quiz';
+      btnText.textContent = 'Generate Quiz';
+      validateQuizDistributor();
+    } else if (type === 'assignment') {
+      modalBadge.textContent = 'Student Assignment';
+      modalTitle.textContent = 'Configure Assignment';
+      btnText.textContent = 'Generate Assignment';
+    }
+  }
+
+  function closeGeneratorModal() {
+    modal.hidden = true;
+  }
+
+  document.querySelectorAll('[data-open-form]').forEach((card) => {
+    card.addEventListener('click', () => openGeneratorForm(card.dataset.openForm));
+  });
+
+  closeModalBtn?.addEventListener('click', closeGeneratorModal);
+  cancelFormBtn?.addEventListener('click', closeGeneratorModal);
+
+  // Duration Pills
+  const durationPills = document.querySelectorAll('.duration-pill');
+  const hiddenDuration = document.querySelector('#form-lesson-duration');
+  durationPills.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      durationPills.forEach((p) => p.classList.remove('is-active'));
+      pill.classList.add('is-active');
+      hiddenDuration.value = pill.dataset.minutes;
+    });
+  });
+
+  // Suggestion Chips
+  const instructionsBox = document.querySelector('#form-instructions');
+  document.querySelectorAll('.inst-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const addition = chip.dataset.text;
+      const current = instructionsBox.value.trim();
+      instructionsBox.value = current ? `${current} ${addition}` : addition;
+      instructionsBox.focus();
+    });
+  });
+
+  // Quiz Question Distributor Validation
+  const quizTotal = document.querySelector('#form-quiz-total');
+  const quizMCQs = document.querySelector('#form-quiz-mcqs');
+  const quizShort = document.querySelector('#form-quiz-short');
+  const quizLong = document.querySelector('#form-quiz-long');
+  const distStatus = document.querySelector('#distributor-status');
+  const distHint = document.querySelector('#distributor-hint');
+
+  function validateQuizDistributor() {
+    if (activeGenerationType !== 'quiz') return true;
+    const total = parseInt(quizTotal.value, 10) || 0;
+    const mcqs = parseInt(quizMCQs.value, 10) || 0;
+    const short = parseInt(quizShort.value, 10) || 0;
+    const long = parseInt(quizLong.value, 10) || 0;
+    const currentSum = mcqs + short + long;
+
+    if (currentSum === total && total > 0) {
+      distStatus.textContent = `Total: ${total} / ${total} Balanced`;
+      distStatus.classList.remove('error');
+      distHint.textContent = '✓ Distribution is valid and matches total questions.';
+      submitGenBtn.disabled = false;
+      return true;
+    } else {
+      const diff = total - currentSum;
+      distStatus.textContent = `Total: ${currentSum} / ${total}`;
+      distStatus.classList.add('error');
+      distHint.textContent = diff > 0
+        ? `⚠️ Please allocate ${diff} more question${diff > 1 ? 's' : ''}.`
+        : `⚠️ Distribution exceeds total by ${Math.abs(diff)} question${Math.abs(diff) > 1 ? 's' : ''}.`;
+      submitGenBtn.disabled = true;
+      return false;
+    }
+  }
+
+  [quizTotal, quizMCQs, quizShort, quizLong].forEach((el) => {
+    el?.addEventListener('input', validateQuizDistributor);
+  });
+
+  // Form Submit Handler
+  genForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (activeGenerationType === 'quiz' && !validateQuizDistributor()) return;
+
+    submitGenBtn.disabled = true;
+    btnText.textContent = 'Generating Content…';
+
+    const subject = document.querySelector('#form-subject').value.trim();
+    const topic = document.querySelector('#form-topic').value.trim();
+    const educational_level = document.querySelector('#form-level').value;
+    const source_mode = document.querySelector('#form-source-mode').value;
+    const additional_instructions = instructionsBox.value.trim() || null;
+
+    let endpoint = '';
+    let payload = { subject, topic, educational_level, source_mode, additional_instructions };
+
+    if (activeGenerationType === 'lesson') {
+      endpoint = '/materials/lessons/generate';
+      payload.duration_minutes = parseInt(hiddenDuration.value, 10) || 45;
+      payload.teaching_style = document.querySelector('#form-lesson-style').value.trim() || null;
+      payload.learning_objectives = document.querySelector('#form-lesson-objectives').value.trim() || null;
+    } else if (activeGenerationType === 'quiz') {
+      endpoint = '/materials/quizzes/generate';
+      payload.difficulty = document.querySelector('#form-quiz-difficulty').value;
+      payload.total_questions = parseInt(quizTotal.value, 10);
+      payload.num_mcqs = parseInt(quizMCQs.value, 10);
+      payload.num_short_answer = parseInt(quizShort.value, 10);
+      payload.num_long_answer = parseInt(quizLong.value, 10);
+      payload.mcq_options_count = parseInt(document.querySelector('#form-quiz-options-count').value, 10);
+      payload.include_answer_key = true;
+      payload.include_explanations = true;
+    } else if (activeGenerationType === 'assignment') {
+      endpoint = '/materials/assignments/generate';
+      payload.difficulty = document.querySelector('#form-assignment-difficulty').value;
+      payload.total_tasks = parseInt(document.querySelector('#form-assignment-tasks-count').value, 10);
+      const selectedTypes = [...document.querySelectorAll('input[name="task_type"]:checked')].map((cb) => cb.value);
+      payload.task_types = selectedTypes.length ? selectedTypes : ['short_answer', 'problem_solving'];
+    }
+
+    try {
+      const res = await fetch(`${apiBase}${endpoint}`, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await apiError(res));
+      const material = await res.json();
+      closeGeneratorModal();
+      openContentWorkspace(material);
+      updateMaterialsBadge();
+    } catch (err) {
+      alert(`Generation failed: ${err.message}`);
+    } finally {
+      submitGenBtn.disabled = false;
+      btnText.textContent = 'Generate Content';
+    }
+  });
+
+  // ── Dedicated Content Workspace ─────────────────────────────────────
+  const generatorHub = document.querySelector('#generator-hub');
+  const workspaceView = document.querySelector('#content-workspace');
+  const documentSurface = document.querySelector('#document-surface');
+  const backToHubBtn = document.querySelector('#back-to-hub-btn');
+  const audienceButtons = document.querySelectorAll('.seg-btn');
+  const btnExportPdf = document.querySelector('#btn-export-pdf');
+  const btnExportDocx = document.querySelector('#btn-export-docx');
+
+  backToHubBtn?.addEventListener('click', () => {
+    workspaceView.hidden = true;
+    generatorHub.hidden = false;
+    activeMaterial = null;
+  });
+
+  audienceButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      audienceButtons.forEach((b) => b.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      currentAudience = btn.dataset.audience;
+      if (activeMaterial) renderDocumentSurface(activeMaterial);
+    });
+  });
+
+  function openContentWorkspace(material) {
+    activeMaterial = material;
+    generatorHub.hidden = true;
+    workspaceView.hidden = false;
+    renderDocumentSurface(material);
+    // Broadcast sources to sources sidebar
+    const sources = material.content_json?.sources || [];
+    window.dispatchEvent(new CustomEvent('tutordesk:sources', { detail: sources }));
+  }
+
+  function renderDocumentSurface(material) {
+    const content = material.content_json || {};
+    const mtype = material.type.toLowerCase();
+    const isTeacher = currentAudience === 'teacher';
+
+    let html = `
+      <div class="doc-header-block">
+        <div class="doc-header-badges">
+          <span class="meta-tag">${mtype.toUpperCase()}</span>
+          <span class="meta-tag">${material.educational_level}</span>
+          ${material.difficulty ? `<span class="meta-tag">${material.difficulty}</span>` : ''}
+          <span class="meta-tag source-tag">${material.source_mode.replace('_', ' ').toUpperCase()}</span>
+        </div>
+        <h2 class="doc-editable-title" contenteditable="true" data-field="title">${material.title || 'Untitled Material'}</h2>
+        ${content.overview ? `<p class="doc-overview" contenteditable="true" data-field="overview">${content.overview}</p>` : ''}
+      </div>
+    `;
+
+    if (mtype === 'lesson') {
+      if (content.learning_objectives?.length) {
+        html += `
+          <div class="doc-section-card">
+            <h3 class="doc-section-title">Learning Objectives</h3>
+            <ul class="doc-section-body">
+              ${content.learning_objectives.map((obj) => `<li>${obj}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+      (content.sections || []).forEach((sec, idx) => {
+        html += `
+          <div class="doc-section-card" data-sec-id="${sec.id || idx + 1}">
+            <div class="doc-section-header">
+              <h3 class="doc-section-title">${sec.title} (${sec.time_minutes || 10} min)</h3>
+              <button class="item-regen-btn" type="button" data-regen-type="section" data-item-id="${sec.id || idx + 1}">🔄 Regenerate Section</button>
+            </div>
+            <div class="doc-section-body" contenteditable="true" data-sec-field="concepts">
+              <p>${sec.concepts || ''}</p>
+              ${sec.examples?.length ? `<p><strong>Examples:</strong><br>${sec.examples.join('<br>')}</p>` : ''}
+              ${sec.activities ? `<p><strong>Class Activity:</strong><br>${sec.activities}</p>` : ''}
+            </div>
+          </div>
+        `;
+      });
+      if (content.summary) {
+        html += `
+          <div class="doc-section-card">
+            <h3 class="doc-section-title">Summary & Key Takeaways</h3>
+            <p class="doc-section-body">${content.summary}</p>
+          </div>
+        `;
+      }
+    } else if (mtype === 'quiz') {
+      html += `
+        <div class="doc-section-card">
+          <p class="doc-section-body">${content.instructions_for_students || 'Answer all questions carefully.'}</p>
+        </div>
+      `;
+      (content.questions || []).forEach((q, idx) => {
+        const isMcq = q.type === 'mcq' && q.options?.length;
+        html += `
+          <div class="doc-section-card" data-q-id="${q.id || idx + 1}">
+            <div class="doc-section-header">
+              <h3 class="doc-section-title">Question ${idx + 1} (${q.type?.toUpperCase()} — ${q.marks || 1} pt)</h3>
+              <button class="item-regen-btn" type="button" data-regen-type="question" data-item-id="${q.id || idx + 1}">🔄 Regenerate Question</button>
+            </div>
+            <div class="doc-section-body">
+              <p contenteditable="true">${q.prompt}</p>
+              ${isMcq ? `
+                <ul class="quiz-options-list">
+                  ${q.options.map((opt) => {
+                    const isCorrect = isTeacher && (opt === q.correct_answer || opt.startsWith(q.correct_answer?.slice(0, 2)));
+                    return `<li class="quiz-opt-item ${isCorrect ? 'is-correct' : ''}">${opt}</li>`;
+                  }).join('')}
+                </ul>
+              ` : ''}
+              ${isTeacher ? `
+                <div class="doc-teacher-box">
+                  <strong>Teacher Answer Key:</strong> ${q.correct_answer || 'See criteria'}
+                  ${q.explanation ? `<br><strong>Explanation:</strong> ${q.explanation}` : ''}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      });
+    } else if (mtype === 'assignment') {
+      html += `
+        <div class="doc-section-card">
+          <p class="doc-section-body">${content.instructions_for_students || 'Complete the following tasks.'}</p>
+        </div>
+      `;
+      (content.tasks || []).forEach((t, idx) => {
+        html += `
+          <div class="doc-section-card" data-t-id="${t.id || idx + 1}">
+            <div class="doc-section-header">
+              <h3 class="doc-section-title">Task ${idx + 1}: ${t.title || ''} [${t.marks || 5} marks]</h3>
+              <button class="item-regen-btn" type="button" data-regen-type="task" data-item-id="${t.id || idx + 1}">🔄 Regenerate Task</button>
+            </div>
+            <div class="doc-section-body">
+              <p contenteditable="true">${t.prompt}</p>
+              ${isTeacher ? `
+                <div class="doc-teacher-box">
+                  <strong>Model Answer / Solution:</strong> ${t.model_answer || 'Criteria-based'}
+                  ${t.rubric_criteria?.length ? `
+                    <br><strong>Marking Rubric:</strong>
+                    <ul>${t.rubric_criteria.map((r) => `<li>${r.criterion} (${r.points} pts): ${r.description}</li>`).join('')}</ul>
+                  ` : ''}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    documentSurface.innerHTML = html;
+
+    // Attach Item-Level Regeneration Handlers
+    documentSurface.querySelectorAll('.item-regen-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const itemType = btn.dataset.regenType;
+        const itemId = btn.dataset.itemId;
+        const guidance = prompt(`Enter specific instructions for regenerating this ${itemType} (or leave blank for standard refresh):`);
+        if (guidance === null) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Regenerating…';
+        try {
+          const res = await fetch(`${apiBase}/materials/${material.id}/regenerate-item`, {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ item_type: itemType, item_id: itemId, teacher_guidance: guidance || null }),
+          });
+          if (!res.ok) throw new Error(await apiError(res));
+          const updated = await res.json();
+          activeMaterial = updated;
+          renderDocumentSurface(updated);
+        } catch (err) {
+          alert(`Regeneration failed: ${err.message}`);
+          btn.disabled = false;
+          btn.textContent = `🔄 Regenerate ${itemType}`;
+        }
+      });
+    });
+
+    // Attach Inline Title Edit Listener
+    const editableTitle = documentSurface.querySelector('.doc-editable-title');
+    editableTitle?.addEventListener('blur', async () => {
+      const newTitle = editableTitle.textContent.trim();
+      if (newTitle && newTitle !== material.title) {
+        material.title = newTitle;
+        await fetch(`${apiBase}/materials/${material.id}`, {
+          method: 'PATCH',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ title: newTitle }),
+        });
+      }
+    });
+  }
+
+  // Export handlers
+  btnExportPdf?.addEventListener('click', () => {
+    if (!activeMaterial) return;
+    window.open(`${apiBase}/materials/${activeMaterial.id}/export?format=pdf&audience=${currentAudience}`, '_blank');
+  });
+
+  btnExportDocx?.addEventListener('click', () => {
+    if (!activeMaterial) return;
+    window.open(`${apiBase}/materials/${activeMaterial.id}/export?format=docx&audience=${currentAudience}`, '_blank');
+  });
+
+  // ── Materials Library Controller ────────────────────────────────────
+  const libraryGrid = document.querySelector('#library-grid');
+  const libraryFilters = document.querySelectorAll('.lib-filter-pill');
+  let currentFilter = 'all';
+
+  libraryFilters.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      libraryFilters.forEach((p) => p.classList.remove('is-active'));
+      pill.classList.add('is-active');
+      currentFilter = pill.dataset.filter;
+      loadLibraryMaterials();
+    });
+  });
+
+  async function loadLibraryMaterials() {
+    if (!libraryGrid) return;
+    try {
+      const url = currentFilter === 'all' ? '/materials' : `/materials?type=${currentFilter}`;
+      const res = await fetch(`${apiBase}${url}`, { headers });
+      if (!res.ok) throw new Error(await apiError(res));
+      const materials = await res.json();
+
+      if (!materials.length) {
+        libraryGrid.innerHTML = '<p class="library-empty">No saved materials in this category. Generate a lesson, quiz, or assignment to get started!</p>';
+        return;
+      }
+
+      libraryGrid.innerHTML = materials.map((m) => `
+        <article class="library-card" data-id="${m.id}">
+          <div class="library-card-header">
+            <span class="library-type-badge badge-${m.type}">${m.type}</span>
+            <span class="library-date">${displayDate(m.created_at)}</span>
+          </div>
+          <h3 class="library-card-title">${m.title}</h3>
+          <p class="library-card-meta">${m.subject} • ${m.educational_level}</p>
+          <div class="library-card-actions">
+            <button class="btn-lib-action btn-open" data-open-id="${m.id}">Open in Workspace</button>
+            <button class="btn-lib-action" data-export-id="${m.id}">PDF</button>
+            <button class="btn-lib-action btn-del" data-del-id="${m.id}" title="Delete material">🗑</button>
+          </div>
+        </article>
+      `).join('');
+
+      // Attach Card Actions
+      libraryGrid.querySelectorAll('[data-open-id]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const mId = btn.dataset.openId;
+          const r = await fetch(`${apiBase}/materials/${mId}`, { headers });
+          if (r.ok) {
+            const fullMat = await r.json();
+            switchView('generator');
+            openContentWorkspace(fullMat);
+          }
+        });
+      });
+
+      libraryGrid.querySelectorAll('[data-export-id]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          window.open(`${apiBase}/materials/${btn.dataset.exportId}/export?format=pdf&audience=teacher`, '_blank');
+        });
+      });
+
+      libraryGrid.querySelectorAll('[data-del-id]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Are you sure you want to delete this educational material?')) return;
+          const delRes = await fetch(`${apiBase}/materials/${btn.dataset.delId}`, { method: 'DELETE', headers });
+          if (delRes.ok) {
+            loadLibraryMaterials();
+            updateMaterialsBadge();
+          }
+        });
+      });
+    } catch (err) {
+      libraryGrid.innerHTML = `<p class="library-empty">${err.message}</p>`;
+    }
+  }
+
+  async function updateMaterialsBadge() {
+    try {
+      const res = await fetch(`${apiBase}/materials`, { headers });
+      if (res.ok) {
+        const list = await res.json();
+        const badge = document.querySelector('#materials-count-badge');
+        if (badge) badge.textContent = String(list.length);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Preserved RAG Chat, Audio Transcription & PDF Uploads ──────────
   const thread = document.querySelector('.message-thread');
-  const form = document.querySelector('.message-form');
-  const input = document.querySelector('#message-input');
+  const chatForm = document.querySelector('.message-form');
+  const chatInput = document.querySelector('#message-input');
   const fileInput = document.querySelector('#pdf-input');
+  const topUploadBtn = document.querySelector('.top-upload-btn');
   const attach = document.querySelector('.attach-button');
   const mic = document.querySelector('.mic-button');
   const send = document.querySelector('.send-button');
@@ -114,17 +625,15 @@
   const dropzone = document.querySelector('.upload-dropzone');
   const status = document.querySelector('.upload-status');
   let conversationId = null;
-  const MAX_RECORDING_SECONDS = 120;
-  const AUDIO_MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/aac'];
-  let recorder = null;
-  let audioStream = null;
-  let recordTimer = null;
-  let recordSeconds = 0;
 
-  function authHeaders(extra = {}) { return { Authorization: `Bearer ${token}`, ...extra }; }
-  function setStatus(message = '', isError = false) { status.textContent = message; status.classList.toggle('error', isError); }
-  function scrollThread() { thread.scrollTop = thread.scrollHeight; }
+  function setStatus(message = '', isError = false) {
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle('error', isError);
+  }
+  function scrollThread() { if (thread) thread.scrollTop = thread.scrollHeight; }
   function timestamp() { return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date()); }
+
   function appendInline(container, value) {
     const pieces = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<]+)/g);
     pieces.forEach((piece) => {
@@ -135,6 +644,7 @@
       else container.append(document.createTextNode(piece));
     });
   }
+
   function renderMarkdown(container, value) {
     container.classList.add('message-markdown');
     const lines = value.split('\n'); let list = null; let listType = '';
@@ -150,8 +660,9 @@
       closeList(); if (line.trim()) { const paragraph = document.createElement('p'); appendInline(paragraph, line); container.append(paragraph); }
     }
   }
+
   function addMessage(role, text, typing = false) {
-    thread.querySelector('.thread-welcome')?.remove();
+    thread?.querySelector('.thread-welcome')?.remove();
     const item = document.createElement('article');
     item.className = `message ${role}${typing ? ' typing' : ''}`;
     const avatar = document.createElement('span'); avatar.className = 'message-avatar'; avatar.textContent = role === 'user' ? 'You' : 'TD';
@@ -159,19 +670,22 @@
     const bubble = document.createElement('div'); bubble.className = 'message-bubble';
     if (role === 'assistant' && !typing) renderMarkdown(bubble, text); else bubble.textContent = text;
     const time = document.createElement('time'); time.className = 'message-time'; time.textContent = typing ? '' : timestamp();
-    content.append(bubble, time); item.append(avatar, content); thread.append(item); scrollThread();
+    content.append(bubble, time); item.append(avatar, content); thread?.append(item); scrollThread();
     return item;
   }
-  function resizeInput() { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 140)}px`; }
-  async function apiError(response) { const body = await response.json().catch(() => ({})); if (response.status === 401) { localStorage.removeItem('tutordesk_token'); window.location.assign('/'); } return body.detail || 'Request failed. Please try again.'; }
 
-  input.addEventListener('input', resizeInput);
-  input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); } });
-  attach.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', () => uploadFile(fileInput.files[0]));
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault(); const query = input.value.trim(); if (!query || send.disabled) return;
-    setStatus(); addMessage('user', query); input.value = ''; resizeInput(); send.disabled = true;
+  function resizeInput() { if (!chatInput) return; chatInput.style.height = 'auto'; chatInput.style.height = `${Math.min(chatInput.scrollHeight, 140)}px`; }
+
+  chatInput?.addEventListener('input', resizeInput);
+  chatInput?.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); chatForm.requestSubmit(); } });
+
+  topUploadBtn?.addEventListener('click', () => fileInput?.click());
+  attach?.addEventListener('click', () => fileInput?.click());
+  fileInput?.addEventListener('change', () => uploadFile(fileInput.files[0]));
+
+  chatForm?.addEventListener('submit', async (event) => {
+    event.preventDefault(); const query = chatInput.value.trim(); if (!query || send.disabled) return;
+    setStatus(); addMessage('user', query); chatInput.value = ''; resizeInput(); send.disabled = true;
     const typing = addMessage('assistant', 'TutorDesk is thinking…', true);
     try {
       const response = await fetch(`${apiBase}/ask`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ query, conversation_id: conversationId }) });
@@ -182,13 +696,14 @@
       window.dispatchEvent(new CustomEvent('tutordesk:conversation-updated', { detail: { id: conversationId, title: query } }));
       window.dispatchEvent(new CustomEvent('tutordesk:sources', { detail: body.sources || [] }));
     } catch (error) { typing.remove(); addMessage('assistant', error.message || 'Unable to reach TutorDesk.'); }
-    finally { send.disabled = false; input.focus(); }
+    finally { send.disabled = false; chatInput.focus(); }
   });
+
   async function uploadFile(file) {
     if (!file) return;
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) return setStatus('Please select a PDF file.', true);
     if (file.size > 20 * 1024 * 1024) return setStatus('PDF must be 20 MB or smaller.', true);
-    attach.disabled = true; setStatus(`Uploading ${file.name}…`);
+    setStatus(`Uploading ${file.name}…`);
     try {
       const data = new FormData(); data.append('file', file);
       const response = await fetch(`${apiBase}/upload`, { method: 'POST', headers: authHeaders(), body: data });
@@ -196,193 +711,80 @@
       setStatus(`${file.name} uploaded and indexed successfully.`);
       window.dispatchEvent(new CustomEvent('tutordesk:document-uploaded'));
     } catch (error) { setStatus(error.message || 'Upload failed. Please try again.', true); }
-    finally { attach.disabled = false; fileInput.value = ''; }
+    finally { if (fileInput) fileInput.value = ''; }
   }
+
+  // Voice recording preservation
+  let recorder = null;
+  let audioStream = null;
+  let recordTimer = null;
+  let recordSeconds = 0;
+  const AUDIO_MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/aac'];
+
   function pickAudioMimeType() {
     if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
     return AUDIO_MIME_CANDIDATES.find((type) => MediaRecorder.isTypeSupported(type)) || '';
   }
-  function stopAudioStream() {
-    audioStream?.getTracks().forEach((track) => track.stop());
-    audioStream = null;
-  }
+  function stopAudioStream() { audioStream?.getTracks().forEach((track) => track.stop()); audioStream = null; }
   function endRecording() {
     if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
-    mic.classList.remove('is-recording');
-    mic.setAttribute('aria-label', 'Record voice message');
+    mic?.classList.remove('is-recording');
+    mic?.setAttribute('aria-label', 'Record voice message');
     stopAudioStream();
-  }
-  function startRecordingTicker() {
-    recordSeconds = 0;
-    recordTimer = setInterval(() => {
-      recordSeconds += 1;
-      const remaining = MAX_RECORDING_SECONDS - recordSeconds;
-      setStatus(`Recording ${recordSeconds}s — press the mic again to stop.`);
-      if (remaining <= 5 && remaining > 0) setStatus(`Recording ${recordSeconds}s — stopping in ${remaining}s.`);
-      if (remaining <= 0) stopRecording();
-    }, 1000);
   }
   async function startRecording() {
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) return setStatus('Voice recording is not supported in this browser.', true);
-    try {
-      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (error) {
-      return setStatus('Microphone access was denied. Allow it in your browser settings to use voice messages.', true);
-    }
+    try { audioStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { return setStatus('Microphone access was denied.', true); }
     const mimeType = pickAudioMimeType();
     let activeRecorder;
-    try {
-      activeRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined);
-    } catch (error) {
-      stopAudioStream();
-      return setStatus('This browser could not start a recording.', true);
-    }
+    try { activeRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined); }
+    catch { stopAudioStream(); return setStatus('Could not start recording.', true); }
     const chunks = [];
     activeRecorder.addEventListener('dataavailable', (event) => { if (event.data.size) chunks.push(event.data); });
     activeRecorder.addEventListener('stop', () => uploadRecording(new Blob(chunks, { type: activeRecorder.mimeType || mimeType || 'audio/webm' })));
     activeRecorder.start();
     recorder = activeRecorder;
-    mic.classList.add('is-recording');
-    mic.setAttribute('aria-label', 'Stop recording');
-    startRecordingTicker();
+    mic?.classList.add('is-recording');
+    recordSeconds = 0;
+    recordTimer = setInterval(() => { recordSeconds += 1; setStatus(`Recording ${recordSeconds}s…`); if (recordSeconds >= 120) stopRecording(); }, 1000);
   }
-  function stopRecording() {
-    if (!recorder || recorder.state === 'inactive') return;
-    recorder.stop();
-    recorder = null;
-    setStatus('Transcribing…');
-    endRecording();
-  }
+  function stopRecording() { if (!recorder || recorder.state === 'inactive') return; recorder.stop(); recorder = null; setStatus('Transcribing…'); endRecording(); }
   async function uploadRecording(blob) {
-    mic.disabled = true;
+    if (mic) mic.disabled = true;
     try {
       const data = new FormData(); data.append('file', blob, 'recording');
       const response = await fetch(`${apiBase}/transcribe`, { method: 'POST', headers: authHeaders(), body: data });
       if (!response.ok) throw new Error(await apiError(response));
       const body = await response.json();
       const text = (body.text || '').trim();
-      if (!text) throw new Error('No speech detected in the recording.');
-      input.value = input.value.trim() ? `${input.value.trim()} ${text}` : text;
-      resizeInput(); input.focus();
-      setStatus('Transcribed — review it and send when ready.');
-    } catch (error) { setStatus(error.message || 'Transcription failed. Please try again.', true); }
-    finally { mic.disabled = false; }
+      if (!text) throw new Error('No speech detected.');
+      if (chatInput) { chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()} ${text}` : text; resizeInput(); chatInput.focus(); }
+      setStatus('Transcribed — send when ready.');
+    } catch (error) { setStatus(error.message || 'Transcription failed.', true); }
+    finally { if (mic) mic.disabled = false; }
   }
-  mic.addEventListener('click', () => { if (recorder) stopRecording(); else startRecording(); });
-  ['dragenter', 'dragover'].forEach((name) => composer.addEventListener(name, (event) => { event.preventDefault(); composer.classList.add('drag-over'); dropzone.hidden = false; }));
-  ['dragleave', 'drop'].forEach((name) => composer.addEventListener(name, (event) => { event.preventDefault(); composer.classList.remove('drag-over'); dropzone.hidden = true; }));
-  composer.addEventListener('drop', (event) => uploadFile(event.dataTransfer.files[0]));
-  window.addEventListener('tutordesk:select-conversation', (event) => {
-    const { id, title, messages } = event.detail; conversationId = id;
-    localStorage.setItem('tutordesk_active_conversation', String(id));
-    thread.replaceChildren(); messages.forEach((message) => addMessage(message.role, message.content));
-    document.querySelector('[data-conversation-title]').textContent = title;
-  });
-  window.addEventListener('tutordesk:new-conversation', () => {
-    conversationId = null; localStorage.removeItem('tutordesk_active_conversation'); thread.innerHTML = '<div class="thread-welcome"><div class="welcome-icon">✦</div><h2>What would you like to create?</h2><p>Build a lesson plan, quiz, MCQs, worksheet, or classroom activity from your material—or research a topic from the web.</p></div>';
-    document.querySelector('[data-conversation-title]').textContent = 'New conversation';
-    window.dispatchEvent(new CustomEvent('tutordesk:sources', { detail: [] }));
-  });
-})();
+  mic?.addEventListener('click', () => { if (recorder) stopRecording(); else startRecording(); });
 
-(() => {
-  if (!document.body.classList.contains('app-page')) return;
+  if (composer) {
+    ['dragenter', 'dragover'].forEach((name) => composer.addEventListener(name, (e) => { e.preventDefault(); composer.classList.add('drag-over'); if (dropzone) dropzone.hidden = false; }));
+    ['dragleave', 'drop'].forEach((name) => composer.addEventListener(name, (e) => { e.preventDefault(); composer.classList.remove('drag-over'); if (dropzone) dropzone.hidden = true; }));
+    composer.addEventListener('drop', (e) => uploadFile(e.dataTransfer.files[0]));
+  }
 
-  const sidebar = document.querySelector('.conversation-sidebar');
-  const sources = document.querySelector('.sources-sidebar');
-  const scrim = document.querySelector('.sidebar-scrim');
-  const closeSidebar = () => { sidebar.classList.remove('is-open'); scrim.classList.remove('is-visible'); };
-  document.querySelector('.menu-button').addEventListener('click', () => { sidebar.classList.add('is-open'); scrim.classList.add('is-visible'); });
-  document.querySelector('.close-sidebar').addEventListener('click', closeSidebar);
-  scrim.addEventListener('click', closeSidebar);
-  document.querySelectorAll('.conversation').forEach((item) => item.addEventListener('click', () => { document.querySelector('.conversation.active')?.classList.remove('active'); item.classList.add('active'); closeSidebar(); }));
-  document.querySelector('.sources-toggle').addEventListener('click', () => sources.classList.add('is-open'));
-  document.querySelector('.sources-sidebar header button').addEventListener('click', () => sources.classList.remove('is-open'));
-  document.querySelector('[data-logout]').addEventListener('click', () => { localStorage.removeItem('tutordesk_token'); window.location.assign('/'); });
-})();
-
-(() => {
-  if (!document.body.classList.contains('app-page')) return;
-  const token = localStorage.getItem('tutordesk_token');
-  if (!token) return;
-  const apiBase = document.querySelector('meta[name="api-base"]')?.content.replace(/\/$/, '') || '';
-  const list = document.querySelector('.conversation-list');
-  const title = document.querySelector('[data-conversation-title]');
-  const email = document.querySelector('.user-email');
-  const sourceList = document.querySelector('.sources-list');
+  // ── Document List (Uploaded PDFs in Sidebar) ────────────────────────
   const docList = document.querySelector('.document-list');
   const docCount = document.querySelector('.documents-count');
-  const headers = { Authorization: `Bearer ${token}` };
-  const request = async (path) => {
-    const response = await fetch(`${apiBase}${path}`, { headers });
-    if (!response.ok) throw new Error('Unable to load your workspace.');
-    return response.json();
-  };
-  const dateGroup = (value) => {
-    const date = new Date(value); const now = new Date(); const days = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / 86400000);
-    return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : 'Older';
-  };
-  const displayDate = (value) => {
+
+  function displayDate(value) {
     if (!value) return 'Recently';
     try {
       const d = new Date(value);
       if (isNaN(d.getTime())) return 'Recently';
       return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d);
-    } catch {
-      return 'Recently';
-    }
-  };
-  function renderConversations(conversations) {
-    list.replaceChildren();
-    const groups = new Map([['Today', []], ['Yesterday', []], ['Older', []]]);
-    conversations.forEach((item) => groups.get(dateGroup(item.created_at)).push(item));
-    groups.forEach((items, group) => {
-      if (!items.length) return;
-      const section = document.createElement('section'); const heading = document.createElement('h3'); heading.textContent = group; section.append(heading);
-      items.forEach((item) => {
-        const button = document.createElement('button'); button.className = 'conversation'; button.type = 'button'; button.dataset.id = item.id;
-        button.innerHTML = `<strong></strong><small>${group === 'Older' ? displayDate(item.created_at) : group}</small><span class="delete-conversation" aria-hidden="true">⌫</span>`;
-        button.querySelector('strong').textContent = item.title || 'Untitled conversation';
-        button.addEventListener('click', () => loadConversation(item, button)); section.append(button);
-      });
-      list.append(section);
-    });
+    } catch { return 'Recently'; }
   }
-  async function loadConversation(conversation, button) {
-    try {
-      const messages = await request(`/conversations/${conversation.id}/messages`);
-      document.querySelector('.conversation.active')?.classList.remove('active'); button.classList.add('active'); title.textContent = conversation.title || 'Untitled conversation';
-      window.dispatchEvent(new CustomEvent('tutordesk:select-conversation', { detail: { id: conversation.id, title: title.textContent, messages } }));
-    } catch (error) { title.textContent = error.message; }
-  }
-  async function refreshConversations({ restore = false, activeId = null } = {}) {
-    try {
-      const conversations = await request('/conversations'); renderConversations(conversations);
-      const selectedId = activeId || Number(localStorage.getItem('tutordesk_active_conversation'));
-      const selectedButton = selectedId && document.querySelector(`[data-id="${selectedId}"]`);
-      if (selectedButton) selectedButton.classList.add('active');
-      if (restore && selectedButton) {
-        const selectedConversation = conversations.find((conversation) => conversation.id === selectedId);
-        if (selectedConversation) await loadConversation(selectedConversation, selectedButton);
-      }
-    } catch (error) { list.textContent = error.message; }
-  }
-  document.querySelector('.new-conversation').addEventListener('click', () => window.dispatchEvent(new Event('tutordesk:new-conversation')));
-  window.addEventListener('tutordesk:conversation-updated', (event) => { title.textContent = event.detail.title.slice(0, 60); refreshConversations({ activeId: event.detail.id }); });
-  window.addEventListener('tutordesk:sources', (event) => {
-    sourceList.replaceChildren(); const sources = event.detail;
-    if (!sources.length) { sourceList.innerHTML = '<p class="sources-empty">No sources were returned for this response.</p>'; return; }
-    sources.forEach((source) => { const card = document.createElement('article'); card.className = 'source-card'; const link = source.url || source; const label = source.title || link; card.innerHTML = `<span class="source-icon">◎</span><div><strong></strong><a target="_blank" rel="noopener noreferrer"></a></div>`; card.querySelector('strong').textContent = label; const anchor = card.querySelector('a'); anchor.href = link; try { anchor.textContent = new URL(link).hostname; } catch { anchor.textContent = link; } sourceList.append(card); });
-  });
-  fetch(`${apiBase}/me`, { headers }).then((response) => {
-    if (response.status === 401) {
-      localStorage.removeItem('tutordesk_token');
-      window.location.replace('/');
-      return null;
-    }
-    if (!response.ok) return null;
-    return response.json();
-  }).then((user) => { if (user) email.textContent = user.email; });
+
   function renderDocuments(documents) {
     if (!docList) return;
     docList.replaceChildren();
@@ -414,37 +816,75 @@
 
   async function deleteDocument(id, filename) {
     try {
-      const response = await fetch(`${apiBase}/uploads/${id}`, {
-        method: 'DELETE',
-        headers,
-      });
+      const response = await fetch(`${apiBase}/uploads/${id}`, { method: 'DELETE', headers });
       if (!response.ok) throw new Error('Could not delete document.');
       await refreshDocuments();
-      const statusEl = document.querySelector('.upload-status');
-      if (statusEl) {
-        statusEl.textContent = `Deleted "${filename}".`;
-        statusEl.classList.remove('error');
-      }
-    } catch (err) {
-      alert(err.message || 'Failed to delete PDF');
-    }
+      setStatus(`Deleted "${filename}".`);
+    } catch (err) { alert(err.message || 'Failed to delete PDF'); }
   }
 
   async function refreshDocuments() {
     try {
-      const docs = await request('/uploads');
+      const res = await fetch(`${apiBase}/uploads`, { headers });
+      if (!res.ok) throw new Error('Failed to load uploads');
+      const docs = await res.json();
       renderDocuments(Array.isArray(docs) ? docs : []);
     } catch (error) {
-      console.error('Failed to load uploads:', error);
       if (docList) docList.innerHTML = `<p class="documents-empty">${error.message}</p>`;
     }
   }
 
   window.addEventListener('tutordesk:document-uploaded', () => refreshDocuments());
-  refreshConversations({ restore: true });
+
+  // Sources Sidebar Display
+  const sourceList = document.querySelector('.sources-list');
+  window.addEventListener('tutordesk:sources', (event) => {
+    if (!sourceList) return;
+    sourceList.replaceChildren();
+    const sources = event.detail || [];
+    if (!sources.length) {
+      sourceList.innerHTML = '<p class="sources-empty">No sources were cited for this item.</p>';
+      return;
+    }
+    sources.forEach((source) => {
+      const card = document.createElement('article');
+      card.className = 'source-card';
+      const link = typeof source === 'string' ? source : source.url || source.title;
+      card.innerHTML = `<span class="source-icon">◎</span><div><strong></strong><a target="_blank" rel="noopener noreferrer"></a></div>`;
+      card.querySelector('strong').textContent = link;
+      const anchor = card.querySelector('a');
+      if (link.startsWith('http')) {
+        anchor.href = link;
+        try { anchor.textContent = new URL(link).hostname; } catch { anchor.textContent = 'External Web Source'; }
+      } else {
+        anchor.textContent = 'User Document';
+      }
+      sourceList.append(card);
+    });
+  });
+
+  // Sidebar toggle controllers
+  const sidebar = document.querySelector('.conversation-sidebar');
+  const sourcesSidebar = document.querySelector('.sources-sidebar');
+  const scrim = document.querySelector('.sidebar-scrim');
+  const closeSidebar = () => { sidebar?.classList.remove('is-open'); scrim?.classList.remove('is-visible'); };
+  document.querySelector('.menu-button')?.addEventListener('click', () => { sidebar?.classList.add('is-open'); scrim?.classList.add('is-visible'); });
+  document.querySelector('.close-sidebar')?.addEventListener('click', closeSidebar);
+  scrim?.addEventListener('click', closeSidebar);
+  document.querySelector('.sources-toggle')?.addEventListener('click', () => sourcesSidebar?.classList.toggle('is-open'));
+  document.querySelector('.close-sources-btn')?.addEventListener('click', () => sourcesSidebar?.classList.remove('is-open'));
+  document.querySelector('[data-logout]')?.addEventListener('click', () => { localStorage.removeItem('tutordesk_token'); window.location.assign('/'); });
+
+  // Initial Data Fetch
+  fetch(`${apiBase}/me`, { headers }).then((res) => res.ok ? res.json() : null).then((user) => {
+    if (user && document.querySelector('.user-email')) document.querySelector('.user-email').textContent = user.email;
+  });
+
   refreshDocuments();
+  updateMaterialsBadge();
 })();
 
+// ── Theme Switcher ───────────────────────────────────────────────────
 (() => {
   const toggle = document.querySelector('[data-theme-toggle]');
   if (!toggle) return;
