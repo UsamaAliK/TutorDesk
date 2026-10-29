@@ -15,28 +15,6 @@ class Settings():
    ACCESS_TOKEN_EXPIRE_MINUTES=60*24
    model='gemini-2.5-flash'
    embedding_model='gemini-embedding-001'
-   transcribe_model='gemini-2.5-flash'
-   SUPPORTED_AUDIO_MIME_TYPES=(
-      "audio/wav",
-      "audio/x-wav",
-      "audio/wave",
-      "audio/mp3",
-      "audio/mpeg",
-      "audio/aiff",
-      "audio/aif",
-      "audio/aac",
-      "audio/ogg",
-      "audio/flac",
-      "audio/m4a",
-      "audio/mp4",
-      "audio/x-m4a",
-      "audio/webm",
-      "audio/opus",
-      "audio/l16",
-      "audio/alaw",
-      "audio/mulaw",
-   )
-   MAX_AUDIO_BYTES=14*1024*1024
    LLM_TEMPERATURE=0.4
    MAX_UPLOAD_BYTES=20*1024*1024
    STORAGE_BUCKET="uploads"
@@ -49,7 +27,6 @@ class Settings():
    RETRIEVE_K=4
    WEB_SEARCH_MAX_RESULTS=5
    TOP_SOURCES=3
-   MAX_WEB_RETRIES=2
 
 
 settings=Settings()
