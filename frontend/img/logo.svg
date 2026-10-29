@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TutorDesk">
-  <path d="M9 45h46M14 43V17h36v26" fill="none" stroke="#4F46E5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M19 27c4-3 8-3 13 1v14c-5-4-9-4-13-1V27Zm26 0c-4-3-8-3-13 1v14c5-4 9-4 13-1V27Z" fill="#EEF2FF" stroke="#4F46E5" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M32 28v11" stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+  <path d="M9 45h46M14 43V17h36v26" fill="none" stroke="#0F6674" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M19 27c4-3 8-3 13 1v14c-5-4-9-4-13-1V27Zm26 0c-4-3-8-3-13 1v14c5-4 9-4 13-1V27Z" fill="#E6F4F3" stroke="#0F6674" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M32 28v11" stroke="#D99A24" stroke-width="3" stroke-linecap="round"/>
 </svg>

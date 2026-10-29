@@ -138,9 +138,6 @@
       viewTitle.textContent = 'Saved Materials Library';
       loadLibraryMaterials();
     }
-    // Mobile sidebar close on view switch
-    document.querySelector('.conversation-sidebar')?.classList.remove('is-open');
-    document.querySelector('.sidebar-scrim')?.classList.remove('is-visible');
   }
 
   viewNavItems.forEach((btn) => btn.addEventListener('click', () => switchView(btn.dataset.viewTarget)));
@@ -161,6 +158,10 @@
   const fieldsAssignment = document.querySelector('#fields-assignment');
   const researchNote = document.querySelector('#research-note');
   const levelSelect = document.querySelector('#form-level');
+  const sourceDocumentSelect = document.querySelector('#form-document-source');
+  const sourcePdfInput = document.querySelector('#source-pdf-input');
+  const uploadSourcePdfButton = document.querySelector('#upload-source-pdf');
+  const sourceUploadStatus = document.querySelector('#source-upload-status');
 
   let activeGenerationType = 'lesson';
   let modalReturnFocus = null;
@@ -169,6 +170,9 @@
     modalReturnFocus = document.activeElement;
     activeGenerationType = type;
     modal.hidden = false;
+    sourceDocumentSelect.value = '';
+    if (sourceUploadStatus) sourceUploadStatus.textContent = '';
+    loadSourceDocuments();
     document.querySelector('#form-subject')?.focus();
 
     fieldsLesson.hidden = type !== 'lesson';
@@ -287,10 +291,19 @@
     const topic = document.querySelector('#form-topic').value.trim();
     const educational_level = document.querySelector('#form-level').value;
     const source_mode = document.querySelector('#form-source-mode').value;
+    const selected_document_id = Number(sourceDocumentSelect.value) || null;
     const additional_instructions = instructionsBox.value.trim() || null;
 
+    if (['material_only', 'combined'].includes(source_mode) && !selected_document_id) {
+      submitGenBtn.disabled = false;
+      btnText.textContent = 'Generate Content';
+      if (sourceUploadStatus) sourceUploadStatus.textContent = 'Choose or upload a PDF for the selected research source.';
+      sourceDocumentSelect.focus();
+      return;
+    }
+
     let endpoint = '';
-    let payload = { subject, topic, educational_level, source_mode, additional_instructions };
+    let payload = { subject, topic, educational_level, source_mode, selected_document_id, additional_instructions };
 
     if (activeGenerationType === 'lesson') {
       endpoint = '/materials/lessons/generate';
@@ -530,14 +543,33 @@
   }
 
   // Export handlers
+  async function downloadMaterial(materialId, format, audience = 'teacher') {
+    try {
+      const response = await fetch(`${apiBase}/materials/${materialId}/export?format=${format}&audience=${audience}`, { headers });
+      if (!response.ok) throw new Error(await apiError(response));
+      const file = await response.blob();
+      const extension = format === 'pdf' ? 'pdf' : 'docx';
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `tutordesk-material.${extension}`;
+      const url = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(`Download failed: ${error.message}`);
+    }
+  }
+
   btnExportPdf?.addEventListener('click', () => {
-    if (!activeMaterial) return;
-    window.open(`${apiBase}/materials/${activeMaterial.id}/export?format=pdf&audience=${currentAudience}`, '_blank');
+    if (activeMaterial) downloadMaterial(activeMaterial.id, 'pdf', currentAudience);
   });
 
   btnExportDocx?.addEventListener('click', () => {
-    if (!activeMaterial) return;
-    window.open(`${apiBase}/materials/${activeMaterial.id}/export?format=docx&audience=${currentAudience}`, '_blank');
+    if (activeMaterial) downloadMaterial(activeMaterial.id, 'docx', currentAudience);
   });
 
   // ── Materials Library Controller ────────────────────────────────────
@@ -597,9 +629,7 @@
       });
 
       libraryGrid.querySelectorAll('[data-export-id]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          window.open(`${apiBase}/materials/${btn.dataset.exportId}/export?format=pdf&audience=teacher`, '_blank');
-        });
+        btn.addEventListener('click', () => downloadMaterial(btn.dataset.exportId, 'pdf', 'teacher'));
       });
 
       libraryGrid.querySelectorAll('[data-del-id]').forEach((btn) => {
@@ -665,97 +695,53 @@
     }));
   }
 
-  // ── PDF uploads for grounding generated materials ──────────────────
-  const fileInput = document.querySelector('#pdf-input');
-  const topUploadBtn = document.querySelector('.top-upload-btn');
-  const status = document.querySelector('#upload-status');
-
-  function setStatus(message = '', isError = false) {
-    if (!status) return;
-    status.textContent = message;
-    status.classList.toggle('error', isError);
-  }
-  topUploadBtn?.addEventListener('click', () => fileInput?.click());
-  fileInput?.addEventListener('change', () => uploadFile(fileInput.files[0]));
-
-  async function uploadFile(file) {
-    if (!file) return;
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) return setStatus('Please select a PDF file.', true);
-    if (file.size > 20 * 1024 * 1024) return setStatus('PDF must be 20 MB or smaller.', true);
-    setStatus(`Uploading ${file.name}…`);
+  // ── Material-specific PDF selection and upload ─────────────────────
+  async function loadSourceDocuments(selectedId = '') {
+    if (!sourceDocumentSelect) return;
     try {
-      const data = new FormData(); data.append('file', file);
-      const response = await fetch(`${apiBase}/upload`, { method: 'POST', headers: authHeaders(), body: data });
+      const response = await fetch(`${apiBase}/uploads`, { headers });
       if (!response.ok) throw new Error(await apiError(response));
-      setStatus(`${file.name} uploaded and indexed successfully.`);
-      window.dispatchEvent(new CustomEvent('tutordesk:document-uploaded'));
-    } catch (error) { setStatus(error.message || 'Upload failed. Please try again.', true); }
-    finally { if (fileInput) fileInput.value = ''; }
+      const documents = await response.json();
+      sourceDocumentSelect.replaceChildren(new Option('No PDF selected', ''));
+      documents.forEach((document) => sourceDocumentSelect.add(new Option(document.filename, String(document.id))));
+      if (selectedId) sourceDocumentSelect.value = String(selectedId);
+    } catch (error) {
+      if (sourceUploadStatus) sourceUploadStatus.textContent = error.message || 'Could not load your PDFs.';
+    }
   }
 
-  // ── Document List (Uploaded PDFs in Sidebar) ────────────────────────
-  const docList = document.querySelector('.document-list');
-  const docCount = document.querySelector('.documents-count');
-
-  function displayDate(value) {
-    if (!value) return 'Recently';
-    try {
-      const d = new Date(value);
-      if (isNaN(d.getTime())) return 'Recently';
-      return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d);
-    } catch { return 'Recently'; }
-  }
-
-  function renderDocuments(documents) {
-    if (!docList) return;
-    docList.replaceChildren();
-    if (docCount) docCount.textContent = String(documents.length);
-    if (!documents.length) {
-      docList.innerHTML = '<p class="documents-empty">No PDFs uploaded yet.</p>';
+  uploadSourcePdfButton?.addEventListener('click', () => sourcePdfInput?.click());
+  sourcePdfInput?.addEventListener('change', async () => {
+    const file = sourcePdfInput.files[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      sourceUploadStatus.textContent = 'Choose a PDF file.';
+      sourcePdfInput.value = '';
       return;
     }
-    documents.forEach((doc) => {
-      const item = document.createElement('div');
-      item.className = 'document-item';
-      item.innerHTML = `
-        <span class="document-icon" aria-hidden="true">📄</span>
-        <div class="document-info">
-          <span class="document-title"></span>
-          <span class="document-date">${doc.created_at ? displayDate(doc.created_at) : 'Uploaded'}</span>
-        </div>
-        <button class="document-delete" type="button" title="Delete PDF" aria-label="Delete">✕</button>
-      `;
-      item.querySelector('.document-title').textContent = doc.filename;
-      item.querySelector('.document-delete').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!confirm(`Are you sure you want to delete "${doc.filename}"? This will also remove its indexed material.`)) return;
-        await deleteDocument(doc.id, doc.filename);
-      });
-      docList.append(item);
-    });
-  }
-
-  async function deleteDocument(id, filename) {
-    try {
-      const response = await fetch(`${apiBase}/uploads/${id}`, { method: 'DELETE', headers });
-      if (!response.ok) throw new Error('Could not delete document.');
-      await refreshDocuments();
-      setStatus(`Deleted "${filename}".`);
-    } catch (err) { alert(err.message || 'Failed to delete PDF'); }
-  }
-
-  async function refreshDocuments() {
-    try {
-      const res = await fetch(`${apiBase}/uploads`, { headers });
-      if (!res.ok) throw new Error('Failed to load uploads');
-      const docs = await res.json();
-      renderDocuments(Array.isArray(docs) ? docs : []);
-    } catch (error) {
-      if (docList) docList.innerHTML = `<p class="documents-empty">${error.message}</p>`;
+    if (file.size > 20 * 1024 * 1024) {
+      sourceUploadStatus.textContent = 'PDFs must be 20 MB or smaller.';
+      sourcePdfInput.value = '';
+      return;
     }
-  }
-
-  window.addEventListener('tutordesk:document-uploaded', () => refreshDocuments());
+    sourceUploadStatus.textContent = `Uploading ${file.name}…`;
+    uploadSourcePdfButton.disabled = true;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch(`${apiBase}/upload`, { method: 'POST', headers: authHeaders(), body: formData });
+      if (!response.ok) throw new Error(await apiError(response));
+      const uploaded = await response.json();
+      await loadSourceDocuments(uploaded.id);
+      document.querySelector('#form-source-mode').value = 'material_only';
+      sourceUploadStatus.textContent = `${file.name} is ready for this material.`;
+    } catch (error) {
+      sourceUploadStatus.textContent = error.message || 'Upload failed. Please try again.';
+    } finally {
+      sourcePdfInput.value = '';
+      uploadSourcePdfButton.disabled = false;
+    }
+  });
 
   // Sources Sidebar Display
   const sourceList = document.querySelector('.sources-list');
@@ -784,16 +770,18 @@
     });
   });
 
-  // Sidebar toggle controllers
-  const sidebar = document.querySelector('.conversation-sidebar');
+  // Sources drawer and account controls
   const sourcesSidebar = document.querySelector('.sources-sidebar');
-  const scrim = document.querySelector('.sidebar-scrim');
-  const closeSidebar = () => { sidebar?.classList.remove('is-open'); scrim?.classList.remove('is-visible'); };
-  document.querySelector('.menu-button')?.addEventListener('click', () => { sidebar?.classList.add('is-open'); scrim?.classList.add('is-visible'); });
-  document.querySelector('.close-sidebar')?.addEventListener('click', closeSidebar);
-  scrim?.addEventListener('click', closeSidebar);
-  document.querySelector('.sources-toggle')?.addEventListener('click', () => sourcesSidebar?.classList.toggle('is-open'));
-  document.querySelector('.close-sources-btn')?.addEventListener('click', () => sourcesSidebar?.classList.remove('is-open'));
+  const sourcesScrim = document.querySelector('.sources-scrim');
+  const sourcesToggle = document.querySelector('.sources-toggle');
+  function setSourcesOpen(isOpen) {
+    sourcesSidebar?.classList.toggle('is-open', isOpen);
+    sourcesScrim?.classList.toggle('is-visible', isOpen);
+    sourcesToggle?.setAttribute('aria-expanded', String(isOpen));
+  }
+  sourcesToggle?.addEventListener('click', () => setSourcesOpen(!sourcesSidebar?.classList.contains('is-open')));
+  sourcesScrim?.addEventListener('click', () => setSourcesOpen(false));
+  document.querySelector('.close-sources-btn')?.addEventListener('click', () => setSourcesOpen(false));
   document.querySelector('[data-logout]')?.addEventListener('click', () => { localStorage.removeItem('tutordesk_token'); window.location.assign('/'); });
 
   // Initial Data Fetch
@@ -801,7 +789,7 @@
     if (user && document.querySelector('.user-email')) document.querySelector('.user-email').textContent = user.email;
   });
 
-  refreshDocuments();
+  loadSourceDocuments();
   updateMaterialsBadge();
 })();
 

@@ -47,7 +47,7 @@ async def _embed_batch(texts: list[str], sem: asyncio.Semaphore):
         return await embeddings.aembed_documents(texts)
 
 
-async def ingest_pdf(pdf_path: str, user_id: int, original_filename: str = None):
+async def ingest_pdf(pdf_path: str, user_id: int, original_filename: str = None, upload_id: int = None):
     chunks = chunk_docs(load_pdf(pdf_path))
     if not chunks:
         return None
@@ -60,6 +60,7 @@ async def ingest_pdf(pdf_path: str, user_id: int, original_filename: str = None)
             "source": filename,
             "filename": filename,
             "user_id": str(user_id),
+            **({"upload_id": str(upload_id)} if upload_id is not None else {}),
         }
         for c in chunks
     ]
@@ -75,7 +76,7 @@ async def ingest_pdf(pdf_path: str, user_id: int, original_filename: str = None)
     return store
 
 
-async def delete_pdf_embeddings(user_id: int, filename: str, db: AsyncSession):
+async def delete_pdf_embeddings(user_id: int, filename: str, db: AsyncSession, upload_id: int = None):
     """Delete all embeddings associated with this file for the user."""
     await db.execute(
         text(
@@ -83,25 +84,33 @@ async def delete_pdf_embeddings(user_id: int, filename: str, db: AsyncSession):
             DELETE FROM langchain_pg_embedding
             WHERE cmetadata->>'user_id' = :user_id
               AND (
+                  (:upload_id IS NOT NULL AND cmetadata->>'upload_id' = :upload_id)
+                  OR (:upload_id IS NULL AND (
                   cmetadata->>'source' = :filename
                   OR cmetadata->>'filename' = :filename
                   OR cmetadata->>'source' LIKE :pattern
+                  ))
               )
             """
         ),
-        {"user_id": str(user_id), "filename": filename, "pattern": f"%{filename}"},
+        {"user_id": str(user_id), "filename": filename, "pattern": f"%{filename}", "upload_id": str(upload_id) if upload_id is not None else None},
     )
     await db.commit()
 
 
-def retrieve(query: str, k: int = None, user_id: int = None):
+def retrieve(query: str, k: int = None, user_id: int = None, filename: str = None, upload_id: int = None):
+    metadata_filter = {"user_id": str(user_id)}
+    if filename:
+        metadata_filter["filename"] = filename
+    if upload_id is not None:
+        metadata_filter["upload_id"] = str(upload_id)
     return get_vector_store().similarity_search(
-        query, k=k or settings.RETRIEVE_K, filter={"user_id": str(user_id)}
+        query, k=k or settings.RETRIEVE_K, filter=metadata_filter
     )
 
 
-def retrieve_chunks(query: str, k: int = None, user_id: int = None):
-    docs = retrieve(query, k=k, user_id=user_id)
+def retrieve_chunks(query: str, k: int = None, user_id: int = None, filename: str = None, upload_id: int = None):
+    docs = retrieve(query, k=k, user_id=user_id, filename=filename, upload_id=upload_id)
 
     chunks = []
 

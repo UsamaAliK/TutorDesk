@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import os
-import time
+from uuid import uuid4
 from pathlib import Path
 from fastapi import FastAPI,UploadFile,File,Depends,HTTPException
 from fastapi.responses import FileResponse, Response
@@ -224,7 +224,9 @@ async def upload_pdf(
     if len(data) > settings.MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="File too large (max 20 MB)")
 
-    storage_path = f"uploads/user_{user.id}/{int(time.time())}_{file.filename}"
+    upload_key = uuid4().hex
+    safe_filename = os.path.basename(file.filename)
+    storage_path = f"uploads/user_{user.id}/{upload_key}_{safe_filename}"
     client = await get_storage_client()
     await client.storage.from_(settings.STORAGE_BUCKET).upload(
         storage_path, data, {"content-type": "application/pdf", "upsert": "true"}
@@ -232,23 +234,31 @@ async def upload_pdf(
 
     user_dir = f"backend/data/uploads/user_{user.id}"
     os.makedirs(user_dir, exist_ok=True)
-    tmp_path = f"{user_dir}/{int(time.time())}_{file.filename}"
+    tmp_path = f"{user_dir}/{upload_key}_{safe_filename}"
     with open(tmp_path, "wb") as buffer:
         buffer.write(data)
 
+    upload = Upload(
+        user_id=user.id,
+        filename=safe_filename,
+        file_path=storage_path,
+    )
+    db.add(upload)
     try:
-        await ingest_pdf(tmp_path, user.id, original_filename=file.filename)
+        await db.flush()
+        await ingest_pdf(tmp_path, user.id, original_filename=safe_filename, upload_id=upload.id)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        try:
+            await client.storage.from_(settings.STORAGE_BUCKET).remove([storage_path])
+        except Exception:
+            pass
+        raise
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-    upload = Upload(
-        user_id=user.id,
-        filename=file.filename,
-        file_path=storage_path,
-    )
-    db.add(upload)
-    await db.commit()
     await db.refresh(upload)
 
     return {
@@ -294,7 +304,7 @@ async def delete_upload(
         raise HTTPException(status_code=404, detail="File not found")
 
     # 1. Delete embeddings from vector database
-    await delete_pdf_embeddings(user.id, upload.filename, db)
+    await delete_pdf_embeddings(user.id, upload.filename, db, upload_id=upload.id)
 
     # 2. Delete file from Supabase storage
     try:

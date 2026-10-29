@@ -13,67 +13,22 @@
 </head>
 <body class="app-page">
   <div class="app-shell">
-    <!-- Sidebar Navigation -->
-    <aside class="conversation-sidebar" aria-label="Navigation & Library">
-      <div class="sidebar-header">
-        <a class="app-brand" href="/app">
-          <img class="app-logo" src="/img/logo-light.svg" alt="TutorDesk">
-        </a>
-        <button class="close-sidebar" type="button" aria-label="Close menu">×</button>
-      </div>
-
-      <!-- Main Navigation Switcher -->
-      <nav class="sidebar-nav" aria-label="Main Views">
-        <button class="nav-item is-active" type="button" data-view-target="generator">
-          <span class="nav-icon">✦</span>
-          <span>Content Generator</span>
-        </button>
-        <button class="nav-item" type="button" data-view-target="library">
-          <span class="nav-icon">📚</span>
-          <span>Saved Materials</span>
-          <span class="materials-count-badge" id="materials-count-badge">0</span>
-        </button>
-      </nav>
-
-      <div class="sidebar-scroll-area">
-        <!-- PDF Documents Section -->
-        <section class="sidebar-section documents-section">
-          <div class="sidebar-section-header">
-            <h3>My Uploaded PDFs</h3>
-            <span class="documents-count">0</span>
-          </div>
-          <nav class="document-list" aria-live="polite">
-            <p class="documents-empty">No PDFs uploaded yet.</p>
-          </nav>
-          <p class="upload-status" id="upload-status" role="status" aria-live="polite"></p>
-        </section>
-      </div>
-
-      <footer class="sidebar-footer">
-        <span class="user-email">you@example.com</span>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false">
-          <span aria-hidden="true">◐</span> Dark theme
-        </button>
-        <button type="button" data-logout>Log out</button>
-      </footer>
-    </aside>
-
-    <div class="sidebar-scrim" aria-hidden="true"></div>
-
     <!-- Main Workspace Container -->
     <main class="main-workspace">
+      <h1 class="sr-only" id="workspace-view-title">Content Generator</h1>
       <header class="workspace-header">
         <div class="header-left">
-          <button class="menu-button" type="button" aria-label="Open menu">☰</button>
-          <h1 id="workspace-view-title">Content Generator</h1>
+          <a class="workspace-brand" href="/app"><img src="/img/logo.svg" alt=""><span>TutorDesk</span></a>
+          <nav class="top-nav" aria-label="Main views">
+            <button class="top-nav-item is-active" type="button" data-view-target="generator">Create</button>
+            <button class="top-nav-item" type="button" data-view-target="library">Saved materials <span class="materials-count-badge" id="materials-count-badge">0</span></button>
+          </nav>
         </div>
         <div class="header-right">
-          <button class="attach-button top-upload-btn" type="button" title="Upload PDF to your library">
-            <span aria-hidden="true">＋</span>
-            <span>Upload PDF</span>
-          </button>
-          <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden>
-          <button class="sources-toggle" type="button" aria-expanded="false">Sources <span>›</span></button>
+          <span class="user-email" aria-label="Signed in account"></span>
+          <button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false"><span aria-hidden="true">◐</span> Dark mode</button>
+          <button class="sources-toggle" type="button" aria-expanded="false">Sources</button>
+          <button class="logout-button" type="button" data-logout>Log out</button>
         </div>
       </header>
 
@@ -166,6 +121,12 @@
                 </div>
               </div>
 
+              <section class="material-source-picker" aria-labelledby="document-source-title">
+                <div class="source-picker-copy"><strong id="document-source-title">Use a PDF for this material</strong><small>Choose an existing file or upload a new one just for this lesson, quiz, or assignment.</small></div>
+                <div class="source-picker-controls"><label class="sr-only" for="form-document-source">PDF for this material</label><select id="form-document-source"><option value="">No PDF selected</option></select><button type="button" class="btn-upload-source" id="upload-source-pdf">Upload PDF</button><input id="source-pdf-input" type="file" accept="application/pdf,.pdf" hidden></div>
+                <p class="source-upload-status" id="source-upload-status" role="status" aria-live="polite"></p>
+              </section>
+
               <div class="research-note" id="research-note" hidden><strong>Research mode</strong><span>Use your guidance to emphasize literature review, critical analysis, methodology, evidence, or citations. Sources depend on the selected grounding option.</span></div>
 
               <!-- Shared Field: Educational Level -->
@@ -184,11 +145,11 @@
 
                 <!-- Shared Field: Content Source Settings -->
                 <div class="form-group">
-                  <label for="form-source-mode">Content Source Grounding <span class="required">*</span></label>
+                  <label for="form-source-mode">Research source <span class="required">*</span></label>
                   <select id="form-source-mode" required>
-                    <option value="web_search" selected>Web Search (Live verified research)</option>
-                    <option value="material_only">Provided Material Only (My Uploaded PDFs)</option>
-                    <option value="combined">Combined (Uploaded PDFs + Web Search)</option>
+                    <option value="web_search" selected>Web research</option>
+                    <option value="material_only">Selected PDF only</option>
+                    <option value="combined">Selected PDF + web research</option>
                   </select>
                 </div>
               </div>
@@ -392,7 +353,8 @@
 
     </main>
 
-    <!-- Sources Sidebar -->
+    <div class="sources-scrim" aria-hidden="true"></div>
+    <!-- Sources drawer -->
     <aside class="sources-sidebar" aria-label="Sources">
       <header>
         <h2>Grounding Sources</h2>

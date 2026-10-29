@@ -24,6 +24,12 @@ async def resolve_content_sources(
     context_blocks = []
     sources = []
 
+    if source_mode in (SourceMode.MATERIAL_ONLY, SourceMode.COMBINED) and not selected_document_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose a PDF for this material or select web research only.",
+        )
+
     # Check user's uploaded documents in DB
     user_uploads_query = select(Upload).where(Upload.user_id == user_id)
     if selected_document_id:
@@ -31,6 +37,27 @@ async def resolve_content_sources(
     
     result = await db.execute(user_uploads_query)
     user_uploads = result.scalars().all()
+    if selected_document_id and not user_uploads:
+        raise HTTPException(status_code=400, detail="The selected PDF is no longer available in your uploaded materials.")
+    selected_upload = user_uploads[0] if selected_document_id and user_uploads else None
+
+    def get_chunks(search_query: str, limit: int):
+        return retrieve_chunks(
+            search_query,
+            user_id=user_id,
+            k=limit,
+            filename=selected_upload.filename if selected_upload else None,
+            upload_id=selected_upload.id if selected_upload else None,
+        )
+
+    def get_selected_chunks(search_query: str, limit: int):
+        # New uploads have unique vector metadata; filename matching keeps older indexed files usable.
+        if selected_upload:
+            chunks = retrieve_chunks(search_query, user_id=user_id, k=limit, upload_id=selected_upload.id)
+            if not chunks:
+                chunks = retrieve_chunks(search_query, user_id=user_id, k=limit, filename=selected_upload.filename)
+            return chunks
+        return get_chunks(search_query, limit)
 
     # ─────────────────────────────────────────────────────────────
     # Mode A: Provided material only
@@ -47,11 +74,11 @@ async def resolve_content_sources(
                 detail="You selected 'Provided material only', but have not uploaded any documents yet. Please upload a PDF or switch to 'Web search'."
             )
 
-        rag_chunks = retrieve_chunks(query, user_id=user_id, k=6)
+        rag_chunks = get_selected_chunks(query, 6)
         if not rag_chunks:
             # Fallback to general terms query if specific query yielded no chunks
             general_query = query.split(":")[0] if ":" in query else query
-            rag_chunks = retrieve_chunks(general_query, user_id=user_id, k=6)
+            rag_chunks = get_selected_chunks(general_query, 6)
 
         if not rag_chunks:
             raise HTTPException(
@@ -98,7 +125,7 @@ async def resolve_content_sources(
     if source_mode == SourceMode.COMBINED:
         has_rag = False
         if user_uploads:
-            rag_chunks = retrieve_chunks(query, user_id=user_id, k=4)
+            rag_chunks = get_selected_chunks(query, 4)
             if rag_chunks:
                 has_rag = True
                 context_blocks.append("=== PRIMARY GROUNDING: USER UPLOADED DOCUMENTS ===")
