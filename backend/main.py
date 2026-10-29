@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 import os
 import time
 from pathlib import Path
@@ -9,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.schemas.chat import AskRequest, ConversationCreate
 from backend.schemas.auth import SignupRequest,LoginRequest,TokenResponse
-from backend.rag.vector_store import ingest_pdf
+from backend.rag.vector_store import ingest_pdf, delete_pdf_embeddings
 from backend.voice.transcribe import (
     TranscribeFailed,
     TranscribeRateLimited,
@@ -18,8 +19,8 @@ from backend.voice.transcribe import (
     is_supported_mime_type,
 )
 from backend.graph import graph
-from backend.db.database import get_db
-from backend.db.models import User, Conversation, Message
+from backend.db.database import get_db, engine, Base
+from backend.db.models import User, Conversation, Message, Upload
 from backend.security import hash_password,verify_password,create_access_token
 from backend.auth import get_current_user
 from supabase import create_async_client
@@ -41,7 +42,14 @@ async def get_storage_client():
     return _storage_client
 
 
-app=FastAPI(title="TutorDesk")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
+app = FastAPI(title="TutorDesk", lifespan=lifespan)
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/css", StaticFiles(directory=FRONTEND_DIR / "css"), name="css")
 app.mount("/js", StaticFiles(directory=FRONTEND_DIR / "js"), name="js")
@@ -188,7 +196,11 @@ async def _ensure_conversation(db: AsyncSession, user_id: int, request: AskReque
 
 
 @app.post("/upload")
-async def upload_pdf(file:UploadFile=File(...), user:User=Depends(get_current_user)):
+async def upload_pdf(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
@@ -209,15 +221,77 @@ async def upload_pdf(file:UploadFile=File(...), user:User=Depends(get_current_us
         buffer.write(data)
 
     try:
-        await ingest_pdf(tmp_path, user.id)
+        await ingest_pdf(tmp_path, user.id, original_filename=file.filename)
     finally:
-        os.remove(tmp_path)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    upload = Upload(
+        user_id=user.id,
+        filename=file.filename,
+        file_path=storage_path,
+    )
+    db.add(upload)
+    await db.commit()
+    await db.refresh(upload)
 
     return {
-        "filename":file.filename,
-        "storage_path":storage_path,
-        "message":"PDF uploaded and indexed successfully"
+        "id": upload.id,
+        "filename": upload.filename,
+        "storage_path": upload.file_path,
+        "created_at": upload.created_at,
+        "message": "PDF uploaded and indexed successfully",
     }
+
+
+@app.get("/uploads")
+async def list_uploads(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Upload)
+        .where(Upload.user_id == user.id)
+        .order_by(Upload.created_at.desc(), Upload.id.desc())
+    )
+    return [
+        {
+            "id": u.id,
+            "filename": u.filename,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+        }
+        for u in result.scalars().all()
+    ]
+
+
+@app.delete("/uploads/{upload_id}")
+async def delete_upload(
+    upload_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Upload).where(Upload.id == upload_id, Upload.user_id == user.id)
+    )
+    upload = result.scalar_one_or_none()
+    if upload is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # 1. Delete embeddings from vector database
+    await delete_pdf_embeddings(user.id, upload.filename, db)
+
+    # 2. Delete file from Supabase storage
+    try:
+        client = await get_storage_client()
+        await client.storage.from_(settings.STORAGE_BUCKET).remove([upload.file_path])
+    except Exception:
+        pass
+
+    # 3. Delete record from database
+    await db.delete(upload)
+    await db.commit()
+
+    return {"message": "File deleted successfully", "id": upload_id}
 
 
 @app.post("/transcribe")

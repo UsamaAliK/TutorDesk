@@ -194,6 +194,7 @@
       const response = await fetch(`${apiBase}/upload`, { method: 'POST', headers: authHeaders(), body: data });
       if (!response.ok) throw new Error(await apiError(response));
       setStatus(`${file.name} uploaded and indexed successfully.`);
+      window.dispatchEvent(new CustomEvent('tutordesk:document-uploaded'));
     } catch (error) { setStatus(error.message || 'Upload failed. Please try again.', true); }
     finally { attach.disabled = false; fileInput.value = ''; }
   }
@@ -309,6 +310,8 @@
   const title = document.querySelector('[data-conversation-title]');
   const email = document.querySelector('.user-email');
   const sourceList = document.querySelector('.sources-list');
+  const docList = document.querySelector('.document-list');
+  const docCount = document.querySelector('.documents-count');
   const headers = { Authorization: `Bearer ${token}` };
   const request = async (path) => {
     const response = await fetch(`${apiBase}${path}`, { headers });
@@ -319,7 +322,16 @@
     const date = new Date(value); const now = new Date(); const days = Math.floor((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / 86400000);
     return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : 'Older';
   };
-  const displayDate = (value) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
+  const displayDate = (value) => {
+    if (!value) return 'Recently';
+    try {
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return 'Recently';
+      return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d);
+    } catch {
+      return 'Recently';
+    }
+  };
   function renderConversations(conversations) {
     list.replaceChildren();
     const groups = new Map([['Today', []], ['Yesterday', []], ['Older', []]]);
@@ -371,7 +383,66 @@
     if (!response.ok) return null;
     return response.json();
   }).then((user) => { if (user) email.textContent = user.email; });
+  function renderDocuments(documents) {
+    if (!docList) return;
+    docList.replaceChildren();
+    if (docCount) docCount.textContent = String(documents.length);
+    if (!documents.length) {
+      docList.innerHTML = '<p class="documents-empty">No PDFs uploaded yet.</p>';
+      return;
+    }
+    documents.forEach((doc) => {
+      const item = document.createElement('div');
+      item.className = 'document-item';
+      item.innerHTML = `
+        <span class="document-icon" aria-hidden="true">📄</span>
+        <div class="document-info">
+          <span class="document-title"></span>
+          <span class="document-date">${doc.created_at ? displayDate(doc.created_at) : 'Uploaded'}</span>
+        </div>
+        <button class="document-delete" type="button" title="Delete PDF" aria-label="Delete">✕</button>
+      `;
+      item.querySelector('.document-title').textContent = doc.filename;
+      item.querySelector('.document-delete').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Are you sure you want to delete "${doc.filename}"? This will also remove its indexed material.`)) return;
+        await deleteDocument(doc.id, doc.filename);
+      });
+      docList.append(item);
+    });
+  }
+
+  async function deleteDocument(id, filename) {
+    try {
+      const response = await fetch(`${apiBase}/uploads/${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      if (!response.ok) throw new Error('Could not delete document.');
+      await refreshDocuments();
+      const statusEl = document.querySelector('.upload-status');
+      if (statusEl) {
+        statusEl.textContent = `Deleted "${filename}".`;
+        statusEl.classList.remove('error');
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to delete PDF');
+    }
+  }
+
+  async function refreshDocuments() {
+    try {
+      const docs = await request('/uploads');
+      renderDocuments(Array.isArray(docs) ? docs : []);
+    } catch (error) {
+      console.error('Failed to load uploads:', error);
+      if (docList) docList.innerHTML = `<p class="documents-empty">${error.message}</p>`;
+    }
+  }
+
+  window.addEventListener('tutordesk:document-uploaded', () => refreshDocuments());
   refreshConversations({ restore: true });
+  refreshDocuments();
 })();
 
 (() => {

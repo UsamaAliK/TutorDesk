@@ -16,7 +16,20 @@
     <aside class="conversation-sidebar" aria-label="Conversations">
       <div class="sidebar-header"><a class="app-brand" href="/app"><img class="app-logo" src="/img/logo-light.svg" alt="TutorDesk"></a><button class="close-sidebar" type="button" aria-label="Close menu">×</button></div>
       <button class="new-conversation" type="button"><span>＋</span> New Conversation</button>
-      <nav class="conversation-list" aria-live="polite"></nav>
+      <div class="sidebar-scroll-area">
+        <section class="sidebar-section">
+          <nav class="conversation-list" aria-live="polite"></nav>
+        </section>
+        <section class="sidebar-section documents-section">
+          <div class="sidebar-section-header">
+            <h3>My Uploaded PDFs</h3>
+            <span class="documents-count">0</span>
+          </div>
+          <nav class="document-list" aria-live="polite">
+            <p class="documents-empty">No PDFs uploaded yet.</p>
+          </nav>
+        </section>
+      </div>
       <footer class="sidebar-footer"><span class="user-email">you@example.com</span><button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false"><span aria-hidden="true">◐</span> Dark theme</button><button type="button" data-logout>Log out</button></footer>
     </aside>
     <div class="sidebar-scrim" aria-hidden="true"></div>
