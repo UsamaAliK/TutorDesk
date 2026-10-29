@@ -4,12 +4,28 @@ import os
 import time
 from pathlib import Path
 from fastapi import FastAPI,UploadFile,File,Depends,HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.schemas.chat import AskRequest, ConversationCreate
 from backend.schemas.auth import SignupRequest,LoginRequest,TokenResponse
+from backend.schemas.material import (
+    LessonGenerateRequest,
+    QuizGenerateRequest,
+    AssignmentGenerateRequest,
+    MaterialUpdateRequest,
+    RegenerateItemRequest,
+    MaterialResponse,
+    MaterialListItem,
+)
+from backend.services.generator import (
+    generate_lesson,
+    generate_quiz,
+    generate_assignment,
+    regenerate_single_item,
+)
+from backend.services.export import export_to_pdf, export_to_docx
 from backend.rag.vector_store import ingest_pdf, delete_pdf_embeddings
 from backend.voice.transcribe import (
     TranscribeFailed,
@@ -20,7 +36,7 @@ from backend.voice.transcribe import (
 )
 from backend.graph import graph
 from backend.db.database import get_db, engine, Base
-from backend.db.models import User, Conversation, Message, Upload
+from backend.db.models import User, Conversation, Message, Upload, Material
 from backend.security import hash_password,verify_password,create_access_token
 from backend.auth import get_current_user
 from supabase import create_async_client
@@ -317,3 +333,155 @@ async def transcribe(file:UploadFile=File(...), user:User=Depends(get_current_us
         raise HTTPException(status_code=422, detail="No speech detected in the recording")
 
     return {"text":text, "mime_type":mime_type}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Guided Educational Content Generation Endpoints (/materials)
+# ─────────────────────────────────────────────────────────────────────
+
+@app.post("/materials/lessons/generate", response_model=MaterialResponse)
+async def api_generate_lesson(
+    body: LessonGenerateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a structured, proportioned lesson plan."""
+    return await generate_lesson(body, user.id, db)
+
+
+@app.post("/materials/quizzes/generate", response_model=MaterialResponse)
+async def api_generate_quiz(
+    body: QuizGenerateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a calibrated quiz with MCQs, short answers, and long answers."""
+    return await generate_quiz(body, user.id, db)
+
+
+@app.post("/materials/assignments/generate", response_model=MaterialResponse)
+async def api_generate_assignment(
+    body: AssignmentGenerateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a structured assignment with problem tasks, rubric, and model answers."""
+    return await generate_assignment(body, user.id, db)
+
+
+@app.get("/materials", response_model=list[MaterialListItem])
+async def list_materials(
+    type: str = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all saved educational materials for the user."""
+    stmt = select(Material).where(Material.user_id == user.id)
+    if type:
+        stmt = stmt.where(Material.type == type.lower())
+    stmt = stmt.order_by(Material.created_at.desc(), Material.id.desc())
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@app.get("/materials/{material_id}", response_model=MaterialResponse)
+async def get_material(
+    material_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch a single material by ID."""
+    material = await _get_owned_material(db, material_id, user.id)
+    return material
+
+
+@app.patch("/materials/{material_id}", response_model=MaterialResponse)
+async def update_material(
+    material_id: int,
+    body: MaterialUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update title or content_json of a saved material."""
+    material = await _get_owned_material(db, material_id, user.id)
+    if body.title is not None:
+        material.title = body.title
+    if body.content_json is not None:
+        material.content_json = body.content_json
+    await db.commit()
+    await db.refresh(material)
+    return material
+
+
+@app.delete("/materials/{material_id}")
+async def delete_material(
+    material_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a saved educational material."""
+    material = await _get_owned_material(db, material_id, user.id)
+    await db.delete(material)
+    await db.commit()
+    return {"message": "Material deleted successfully", "id": material_id}
+
+
+@app.post("/materials/{material_id}/regenerate-item", response_model=MaterialResponse)
+async def api_regenerate_item(
+    material_id: int,
+    body: RegenerateItemRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Regenerate a single question, section, or task within a material."""
+    material = await _get_owned_material(db, material_id, user.id)
+    return await regenerate_single_item(material, body, db)
+
+
+@app.get("/materials/{material_id}/export")
+async def export_material(
+    material_id: int,
+    format: str = "pdf",
+    audience: str = "teacher",
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export material as PDF or DOCX, configured for Student or Teacher."""
+    material = await _get_owned_material(db, material_id, user.id)
+    format = format.lower()
+    audience = audience.lower()
+    safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', material.title)[:40]
+
+    if format == "pdf":
+        file_bytes = export_to_pdf(material, audience=audience)
+        filename = f"{safe_title}_{audience}.pdf"
+        return Response(
+            content=file_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    elif format in ("docx", "doc"):
+        file_bytes = export_to_docx(material, audience=audience)
+        filename = f"{safe_title}_{audience}.docx"
+        return Response(
+            content=file_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Supported export formats are 'pdf' and 'docx'.")
+
+
+async def _get_owned_material(db: AsyncSession, material_id: int, user_id: int) -> Material:
+    material = (
+        await db.execute(
+            select(Material).where(
+                Material.id == material_id,
+                Material.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if material is None:
+        raise HTTPException(status_code=404, detail="Material not found")
+    return material
+
