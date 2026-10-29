@@ -8,7 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="/img/logo-light.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="app-page">
@@ -33,10 +33,6 @@
           <span>Saved Materials</span>
           <span class="materials-count-badge" id="materials-count-badge">0</span>
         </button>
-        <button class="nav-item" type="button" data-view-target="chat">
-          <span class="nav-icon">💬</span>
-          <span>Chat & Voice</span>
-        </button>
       </nav>
 
       <div class="sidebar-scroll-area">
@@ -49,15 +45,7 @@
           <nav class="document-list" aria-live="polite">
             <p class="documents-empty">No PDFs uploaded yet.</p>
           </nav>
-        </section>
-
-        <!-- Chat History Section (When Chat Assistant is active) -->
-        <section class="sidebar-section chat-history-section" id="sidebar-chat-section">
-          <div class="sidebar-section-header">
-            <h3>Conversations</h3>
-            <button class="new-conversation-inline" type="button" title="Start new chat">＋</button>
-          </div>
-          <nav class="conversation-list" aria-live="polite"></nav>
+          <p class="upload-status" id="upload-status" role="status" aria-live="polite"></p>
         </section>
       </div>
 
@@ -77,13 +65,14 @@
       <header class="workspace-header">
         <div class="header-left">
           <button class="menu-button" type="button" aria-label="Open menu">☰</button>
-          <h1 id="workspace-view-title">Educational Content Generator</h1>
+          <h1 id="workspace-view-title">Content Generator</h1>
         </div>
         <div class="header-right">
           <button class="attach-button top-upload-btn" type="button" title="Upload PDF to your library">
-            <span aria-hidden="true">📄</span>
-            <span>Upload Document</span>
+            <span aria-hidden="true">＋</span>
+            <span>Upload PDF</span>
           </button>
+          <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden>
           <button class="sources-toggle" type="button" aria-expanded="false">Sources <span>›</span></button>
         </div>
       </header>
@@ -95,15 +84,16 @@
         <!-- Dashboard Hub (Default state) -->
         <div class="generator-hub" id="generator-hub">
           <div class="hub-hero">
-            <span class="hero-pill">Pedagogy & Curriculum Engine</span>
-            <h2>What educational material would you like to create?</h2>
-            <p>Generate proportioned lesson plans, calibrated quizzes, or comprehensive assignments tailored to your students.</p>
+            <span class="hero-pill">Your teaching studio</span>
+            <p class="hub-kicker">A little more room for great teaching</p>
+            <h2>What are we creating today?</h2>
+            <p>Build lessons, quizzes, and assignments shaped around your students and the way you teach.</p>
           </div>
 
           <div class="generation-cards-grid">
             <!-- Card 1: Lesson Plan -->
             <article class="generator-card" data-open-form="lesson">
-              <div class="card-icon lesson-icon">📘</div>
+              <div class="card-icon lesson-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M9 9.5c5-2 10-1.3 15 1.7v27c-5-3-10-3.7-15-1.7zM39 9.5c-5-2-10-1.3-15 1.7v27c5-3 10-3.7 15-1.7z"/><path d="M14 16c2.5-.6 5-.2 7 1M14 22c2.5-.6 5-.2 7 1M27 17c2-1 4.5-1.2 7-.6M27 23c2-1 4.5-1.2 7-.6"/></svg></div>
               <h3>Create a Lesson</h3>
               <p>Design a structured, timed lesson plan with objectives, conceptual breakdowns, classroom activities, and demonstrations.</p>
               <ul class="card-features">
@@ -116,7 +106,7 @@
 
             <!-- Card 2: Quiz -->
             <article class="generator-card" data-open-form="quiz">
-              <div class="card-icon quiz-icon">📝</div>
+              <div class="card-icon quiz-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="10" y="7" width="28" height="35" rx="5"/><path d="M18 7.5h12v6H18zM17 23l3 3 6-7M29 23h4M17 33l3 3 6-7M29 33h4"/></svg></div>
               <h3>Create a Quiz</h3>
               <p>Construct a calibrated assessment with flexible question distribution, customized MCQ options, and an optional answer key.</p>
               <ul class="card-features">
@@ -129,7 +119,7 @@
 
             <!-- Card 3: Assignment -->
             <article class="generator-card" data-open-form="assignment">
-              <div class="card-icon assignment-icon">📋</div>
+              <div class="card-icon assignment-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M13 10h22a3 3 0 0 1 3 3v26H10V13a3 3 0 0 1 3-3Z"/><path d="M18 10V7h12v3M17 20h14M17 27h14M17 34h9"/><circle cx="13" cy="20" r="1"/><circle cx="13" cy="27" r="1"/><circle cx="13" cy="34" r="1"/></svg></div>
               <h3>Create an Assignment</h3>
               <p>Build problem-solving exercises, case studies, or student homework with marking criteria and model solutions.</p>
               <ul class="card-features">
@@ -140,11 +130,21 @@
               <button class="card-cta-btn" type="button">Start Assignment →</button>
             </article>
           </div>
+
+          <section class="recent-materials" aria-labelledby="recent-title">
+            <div class="recent-heading">
+              <div><p class="section-kicker">Pick up where you left off</p><h2 id="recent-title">Recently created</h2></div>
+              <button type="button" class="text-link" data-view-target="library">View your library <span aria-hidden="true">→</span></button>
+            </div>
+            <div class="recent-materials-list" id="recent-materials-list" aria-live="polite">
+              <p class="recent-empty">Your saved lessons, quizzes, and assignments will appear here.</p>
+            </div>
+          </section>
         </div>
 
         <!-- Dynamic Modal / Drawer for Generation Form -->
         <div class="generator-modal-backdrop" id="generator-modal" hidden>
-          <div class="generator-modal-content">
+          <div class="generator-modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
             <div class="modal-header">
               <div class="modal-title-group">
                 <span class="modal-badge" id="modal-type-badge">Lesson Plan</span>
@@ -165,6 +165,8 @@
                   <input type="text" id="form-topic" required placeholder="e.g. Cellular Respiration, Neural Networks">
                 </div>
               </div>
+
+              <div class="research-note" id="research-note" hidden><strong>Research mode</strong><span>Use your guidance to emphasize literature review, critical analysis, methodology, evidence, or citations. Sources depend on the selected grounding option.</span></div>
 
               <!-- Shared Field: Educational Level -->
               <div class="form-row two-cols">
@@ -197,6 +199,7 @@
                   <div class="form-group">
                     <label>Lesson Duration <span class="required">*</span></label>
                     <div class="duration-pills" id="duration-pills">
+                      <button type="button" class="duration-pill" data-minutes="10">10m</button>
                       <button type="button" class="duration-pill" data-minutes="15">15m</button>
                       <button type="button" class="duration-pill" data-minutes="30">30m</button>
                       <button type="button" class="duration-pill is-active" data-minutes="45">45m</button>
@@ -230,29 +233,44 @@
                     </select>
                   </div>
                   <div class="form-group">
-                    <label for="form-quiz-options-count">Options per MCQ</label>
-                    <select id="form-quiz-options-count">
-                      <option value="3">3 Options (A, B, C)</option>
-                      <option value="4" selected>4 Options (A, B, C, D)</option>
-                      <option value="5">5 Options (A, B, C, D, E)</option>
-                    </select>
+                    <label for="form-quiz-time-limit">Time Limit (Minutes)</label>
+                    <input type="number" id="form-quiz-time-limit" min="5" max="180" placeholder="e.g. 30 (Optional)">
                   </div>
                 </div>
 
-                <!-- Dynamic Question Distributor -->
-                <div class="distributor-card">
-                  <div class="distributor-header">
-                    <label>Question Count Distribution</label>
-                    <span class="distributor-status" id="distributor-status">Total: 10 / 10 Allocated</span>
+                <!-- Section A: Separate MCQ Section -->
+                <div class="section-config-box mcq-config-box">
+                  <div class="section-config-title">
+                    <span class="sec-badge">Section A</span>
+                    <strong>Multiple Choice Questions (MCQs)</strong>
                   </div>
-                  <div class="distributor-inputs">
-                    <div class="dist-input-col">
-                      <label for="form-quiz-total">Total</label>
-                      <input type="number" id="form-quiz-total" min="1" max="50" value="10">
+                  <div class="form-row two-cols">
+                    <div class="form-group">
+                      <label for="form-quiz-mcqs">Number of MCQs</label>
+                      <input type="number" id="form-quiz-mcqs" min="0" max="50" value="5">
                     </div>
+                    <div class="form-group">
+                      <label for="form-quiz-options-count">Options per MCQ</label>
+                      <select id="form-quiz-options-count">
+                        <option value="3">3 Options (A, B, C)</option>
+                        <option value="4" selected>4 Options (A, B, C, D)</option>
+                        <option value="5">5 Options (A, B, C, D, E)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Section B: Written Questions Section -->
+                <div class="section-config-box written-config-box">
+                  <div class="section-config-title">
+                    <span class="sec-badge">Section B</span>
+                    <strong>Written Questions (Short & Long Answer)</strong>
+                    <span class="distributor-status" id="distributor-status">5 Questions Balanced</span>
+                  </div>
+                  <div class="distributor-inputs three-cols">
                     <div class="dist-input-col">
-                      <label for="form-quiz-mcqs">MCQs</label>
-                      <input type="number" id="form-quiz-mcqs" min="0" max="50" value="6">
+                      <label for="form-quiz-total">Total Questions</label>
+                      <input type="number" id="form-quiz-total" min="0" max="50" value="5">
                     </div>
                     <div class="dist-input-col">
                       <label for="form-quiz-short">Short Answer</label>
@@ -260,10 +278,10 @@
                     </div>
                     <div class="dist-input-col">
                       <label for="form-quiz-long">Long Answer</label>
-                      <input type="number" id="form-quiz-long" min="0" max="50" value="1">
+                      <input type="number" id="form-quiz-long" min="0" max="50" value="2">
                     </div>
                   </div>
-                  <small class="distributor-hint" id="distributor-hint">MCQs + Short Answer + Long Answer must equal Total.</small>
+                  <small class="distributor-hint" id="distributor-hint">Short Answer + Long Answer must equal Total Written Questions.</small>
                 </div>
               </div>
 
@@ -372,34 +390,6 @@
         </div>
       </section>
 
-      <!-- ═══════════════════════════════════════════════════════════ -->
-      <!-- VIEW 3: SUPPORTING CHAT & VOICE ASSISTANT                  -->
-      <!-- ═══════════════════════════════════════════════════════════ -->
-      <section class="app-view" id="view-chat" hidden>
-        <div class="chat-workspace">
-          <section class="message-thread" aria-label="Conversation messages" aria-live="polite">
-            <div class="thread-welcome">
-              <div class="welcome-icon">✦</div>
-              <h2>Teaching Assistant Chat</h2>
-              <p>Ask free-form questions about your uploaded materials, brainstorm course topics, or dictate ideas via voice.</p>
-            </div>
-          </section>
-
-          <section class="composer" aria-label="Message composer">
-            <div class="upload-dropzone" hidden><span>Drop a PDF here to upload</span></div>
-            <form class="message-form">
-              <label class="sr-only" for="message-input">Your message</label>
-              <textarea id="message-input" rows="1" placeholder="Ask TutorDesk anything about your materials…"></textarea>
-              <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden>
-              <button class="mic-button" type="button" aria-label="Record voice message" title="Record voice message"><span aria-hidden="true">🎙</span></button>
-              <button class="attach-button" type="button" aria-label="Upload PDF" title="Upload PDF"><span aria-hidden="true">📄</span><span>Upload PDF</span></button>
-              <button class="send-button" type="submit" aria-label="Send message" title="Send message">↑</button>
-            </form>
-            <p class="upload-status" role="status" aria-live="polite"></p>
-            <small>Dictate questions or upload PDFs (up to 20 MB) directly to your library.</small>
-          </section>
-        </div>
-      </section>
     </main>
 
     <!-- Sources Sidebar -->
@@ -409,7 +399,7 @@
         <button type="button" class="close-sources-btn" aria-label="Close sources">×</button>
       </header>
       <div class="sources-list">
-        <p class="sources-empty">Sources will appear here during generation or chat responses.</p>
+        <p class="sources-empty">Sources for generated materials will appear here.</p>
       </div>
     </aside>
   </div>

@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TutorDesk">
-  <path d="M10 45h44M16 45V19h32v26" fill="none" stroke="#2C3E3E" stroke-width="4" stroke-linecap="round"/>
-  <path d="M21 30c4-3 8-3 11 0v12c-3-3-7-3-11 0V30Zm22 0c-4-3-8-3-11 0v12c3-3 7-3 11 0V30Z" fill="#F5F3F0" stroke="#2C3E3E" stroke-width="2"/>
+  <path d="M9 45h46M14 43V17h36v26" fill="none" stroke="#4F46E5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M19 27c4-3 8-3 13 1v14c-5-4-9-4-13-1V27Zm26 0c-4-3-8-3-13 1v14c5-4 9-4 13-1V27Z" fill="#EEF2FF" stroke="#4F46E5" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M32 28v11" stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
 </svg>

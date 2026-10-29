@@ -163,23 +163,20 @@ PROVIDED SOURCES FOR GROUNDING:
 
 QUIZ_SYSTEM_PROMPT = """\
 You are TutorDesk, an expert assessment specialist.
-Generate a high-quality, strictly calibrated quiz for teachers.
+Generate a high-quality, strictly calibrated quiz for teachers with TWO DISTINCT SECTIONS:
+- SECTION A: MULTIPLE CHOICE QUESTIONS (MCQs)
+- SECTION B: SHORT & LONG ANSWER QUESTIONS
 
 STRICT CONFIGURATION CONSTRAINTS:
 - Educational Level: {educational_level}
 - Difficulty: {difficulty}
-- TOTAL QUESTIONS: Exactly {total_questions}
-- EXACT QUESTION BREAKDOWN:
-  * Multiple Choice Questions (MCQs): Exactly {num_mcqs}
-  * Short-Answer Questions: Exactly {num_short_answer}
-  * Long-Answer / Essay Questions: Exactly {num_long_answer}
-  SUM MUST EQUAL {total_questions}.
-- MCQ REQUIREMENTS:
+- SECTION A (MCQs): Exactly {num_mcqs} questions.
   * Each MCQ MUST have EXACTLY {mcq_options_count} options (e.g. A, B, C, D).
   * EXACTLY ONE option is correct.
   * Options must be plausible; avoid lazy distractors like 'None of the above'.
+- SECTION B (WRITTEN QUESTIONS): Exactly {num_short_answer} Short-Answer and {num_long_answer} Long-Answer questions.
 - ANSWER KEY & EXPLANATIONS:
-  * Provide an unambiguous correct answer and a thorough explanatory rationale for every question.
+  * Provide an unambiguous correct answer and an explanatory rationale for every question.
 
 REQUIRED JSON STRUCTURE:
 {{
@@ -190,36 +187,44 @@ REQUIRED JSON STRUCTURE:
   "difficulty": "{difficulty}",
   "time_limit_minutes": {time_limit_str},
   "total_marks": {total_marks_str},
-  "instructions_for_students": "Read each question carefully...",
-  "questions": [
-    {{
-      "id": "q1",
-      "type": "mcq",
-      "prompt": "Which of the following describes...",
-      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-      "correct_answer": "A) ...",
-      "explanation": "Option A is correct because...",
-      "marks": 1
-    }},
-    {{
-      "id": "q2",
-      "type": "short_answer",
-      "prompt": "Define ... and state two examples.",
-      "options": [],
-      "correct_answer": "Model short answer criteria...",
-      "explanation": "Expected key concepts include...",
-      "marks": 3
-    }},
-    {{
-      "id": "q3",
-      "type": "long_answer",
-      "prompt": "Explain in detail how ... impacts ...",
-      "options": [],
-      "correct_answer": "Comprehensive model response with evaluation points...",
-      "explanation": "Grading guidance: award points for thesis, evidence, and conclusion.",
-      "marks": 5
-    }}
-  ],
+  "instructions_for_students": "Read each section carefully. Section A contains multiple-choice questions; Section B contains written questions.",
+  "mcq_section": {{
+    "title": "Section A: Multiple Choice Questions",
+    "instructions": "Select the single best answer for each question.",
+    "mcqs": [
+      {{
+        "id": "mcq_1",
+        "type": "mcq",
+        "prompt": "Which of the following describes...",
+        "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+        "correct_answer": "A) ...",
+        "explanation": "Option A is correct because...",
+        "marks": 1
+      }}
+    ]
+  }},
+  "questions_section": {{
+    "title": "Section B: Short & Long Answer Questions",
+    "instructions": "Write detailed, well-reasoned answers to the questions below.",
+    "questions": [
+      {{
+        "id": "q_1",
+        "type": "short_answer",
+        "prompt": "Define ... and state two examples.",
+        "correct_answer": "Model short answer criteria...",
+        "explanation": "Expected key concepts include...",
+        "marks": 3
+      }},
+      {{
+        "id": "q_2",
+        "type": "long_answer",
+        "prompt": "Explain in detail how ... impacts ...",
+        "correct_answer": "Comprehensive model response with evaluation points...",
+        "explanation": "Grading guidance: award points for thesis, evidence, and conclusion.",
+        "marks": 5
+      }}
+    ]
+  }},
   "sources": []
 }}
 """
@@ -240,7 +245,6 @@ async def generate_quiz(request: QuizGenerateRequest, user_id: int, db: AsyncSes
         topic=request.topic,
         educational_level=request.educational_level.value,
         difficulty=request.difficulty.value,
-        total_questions=request.total_questions,
         num_mcqs=request.num_mcqs,
         num_short_answer=request.num_short_answer,
         num_long_answer=request.num_long_answer,
@@ -254,10 +258,9 @@ Subject: {request.subject}
 Topic: {request.topic}
 Educational Level: {request.educational_level.value}
 Difficulty: {request.difficulty.value}
-Total Questions: {request.total_questions}
-MCQ Count: {request.num_mcqs} (each with {request.mcq_options_count} options)
-Short Answer Count: {request.num_short_answer}
-Long Answer Count: {request.num_long_answer}
+Section A - MCQs Count: {request.num_mcqs} (each with {request.mcq_options_count} options)
+Section B - Short Answer Count: {request.num_short_answer}
+Section B - Long Answer Count: {request.num_long_answer}
 Learning Objectives: {request.learning_objectives or 'Comprehensive mastery'}
 Additional Instructions: {request.additional_instructions or 'None'}
 
@@ -273,15 +276,34 @@ GROUNDING MATERIAL:
     data = _extract_json(response.content)
     data["sources"] = sources
 
-    # Question validation & repair
-    questions = data.get("questions", [])
-    if len(questions) != request.total_questions:
-        # Tag warning in metadata for teacher transparency
-        data["validation_note"] = f"Generated {len(questions)} questions (target: {request.total_questions})."
+    # Harmonize sections and backward-compatible flat list
+    mcq_sec = data.get("mcq_section") or {}
+    mcqs = mcq_sec.get("mcqs", [])
+    q_sec = data.get("questions_section") or {}
+    written_questions = q_sec.get("questions", [])
+
+    if not mcqs and not written_questions and "questions" in data:
+        flat = data.get("questions", [])
+        mcqs = [q for q in flat if q.get("type") == "mcq" or q.get("options")]
+        written_questions = [q for q in flat if q not in mcqs]
+        data["mcq_section"] = {
+            "title": "Section A: Multiple Choice Questions",
+            "instructions": "Select the single best answer for each question.",
+            "mcqs": mcqs
+        }
+        data["questions_section"] = {
+            "title": "Section B: Short & Long Answer Questions",
+            "instructions": "Write detailed, well-reasoned answers to the questions below.",
+            "questions": written_questions
+        }
+
+    # Ensure flat questions array exists for backward compatibility
+    data["questions"] = mcqs + written_questions
 
     # Enforce marks consistency if specified
+    all_items = mcqs + written_questions
     if request.total_marks:
-        computed_marks = sum(q.get("marks", 1) for q in questions)
+        computed_marks = sum(q.get("marks", 1) for q in all_items)
         data["total_marks"] = computed_marks or request.total_marks
 
     title = data.get("title") or f"Quiz: {request.topic}"
@@ -426,34 +448,67 @@ async def regenerate_single_item(
     item_id = str(request.item_id)
     guidance = request.teacher_guidance or "Provide a refreshed, high quality alternative."
 
-    if material.type == "quiz" and "questions" in content:
+    if material.type == "quiz":
+        # Search in mcq_section, questions_section, or questions
+        mcqs = content.get("mcq_section", {}).get("mcqs", [])
+        written = content.get("questions_section", {}).get("questions", [])
+        flat = content.get("questions", [])
+
+        target_container = None
         target_idx = None
         current_item = None
-        for i, q in enumerate(content["questions"]):
-            if str(q.get("id")) == item_id or str(i + 1) == item_id:
-                target_idx = i
-                current_item = q
-                break
 
-        if target_idx is None:
-            raise HTTPException(status_code=404, detail=f"Question '{item_id}' not found in quiz.")
+        if item_type == "mcq" or "mcq" in item_id:
+            for i, q in enumerate(mcqs):
+                if str(q.get("id")) == item_id or str(i + 1) == item_id:
+                    target_container = mcqs
+                    target_idx = i
+                    current_item = q
+                    break
+
+        if current_item is None:
+            for i, q in enumerate(written):
+                if str(q.get("id")) == item_id or str(i + 1) == item_id:
+                    target_container = written
+                    target_idx = i
+                    current_item = q
+                    break
+
+        if current_item is None:
+            for i, q in enumerate(flat):
+                if str(q.get("id")) == item_id or str(i + 1) == item_id:
+                    target_container = flat
+                    target_idx = i
+                    current_item = q
+                    break
+
+        if current_item is None:
+            raise HTTPException(status_code=404, detail=f"Question/MCQ '{item_id}' not found in quiz.")
+
+        is_mcq_target = current_item.get("type") == "mcq" or bool(current_item.get("options"))
 
         prompt = f"""
-Regenerate this specific quiz question while matching the surrounding quiz style.
+Regenerate this specific quiz {'multiple choice question (MCQ)' if is_mcq_target else 'written question'}.
 Topic: {material.topic}
 Level: {material.educational_level}
 Difficulty: {material.difficulty}
-Current Question to Replace:
+Current Item to Replace:
 {json.dumps(current_item, indent=2)}
 
 Teacher Guidance: {guidance}
 
-Return a single JSON object for this question matching the exact same keys (id, type, prompt, options, correct_answer, explanation, marks).
+Return a single JSON object matching keys (id, type, prompt, options, correct_answer, explanation, marks).
 """
         resp = await llm.ainvoke([("user", prompt)])
         new_q = _extract_json(resp.content)
         new_q["id"] = current_item["id"]
-        content["questions"][target_idx] = new_q
+        target_container[target_idx] = new_q
+
+        # Synchronize flat list if present
+        for i, q in enumerate(flat):
+            if str(q.get("id")) == str(current_item["id"]):
+                flat[i] = new_q
+                break
 
     elif material.type == "lesson" and "sections" in content:
         target_idx = None

@@ -58,30 +58,63 @@ def _format_material_text(material: Material, audience: str = "teacher") -> list
 
     elif mtype == "quiz":
         inst = content.get("instructions_for_students") or "Answer all questions to the best of your ability."
-        blocks.append(("Instructions", inst))
+        blocks.append(("General Instructions", inst))
 
-        questions = content.get("questions", [])
-        q_blocks = []
-        answer_key = []
+        mcqs = content.get("mcq_section", {}).get("mcqs", [])
+        written = content.get("questions_section", {}).get("questions", [])
 
-        for i, q in enumerate(questions, 1):
-            q_type = q.get("type", "Question").upper()
-            marks = f"({q.get('marks', 1)} pt{'s' if q.get('marks', 1) != 1 else ''})"
-            prompt = f"{i}. [{q_type}] {q.get('prompt', '')} {marks}"
-            if q.get("options"):
-                prompt += "\n" + "\n".join(f"   {opt}" for opt in q["options"])
-            q_blocks.append(prompt)
+        # Fallback to questions array if sections not explicitly present
+        if not mcqs and not written and content.get("questions"):
+            for q in content["questions"]:
+                if q.get("type") == "mcq" or q.get("options"):
+                    mcqs.append(q)
+                else:
+                    written.append(q)
 
-            if is_teacher:
-                ans = f"{i}. Correct Answer: {q.get('correct_answer', 'N/A')}"
-                if q.get("explanation"):
-                    ans += f"\n   Explanation: {q['explanation']}"
-                answer_key.append(ans)
+        # ── Section A: MCQs ──
+        if mcqs:
+            mcq_blocks = []
+            mcq_instructions = content.get("mcq_section", {}).get("instructions")
+            if mcq_instructions:
+                mcq_blocks.append(mcq_instructions + "\n")
+            for i, q in enumerate(mcqs, 1):
+                marks = f"({q.get('marks', 1)} pt{'s' if q.get('marks', 1) != 1 else ''})"
+                item_text = f"{i}. {q.get('prompt', '')} {marks}"
+                if q.get("options"):
+                    item_text += "\n" + "\n".join(f"   {opt}" for opt in q["options"])
+                mcq_blocks.append(item_text)
+            blocks.append(("SECTION A: MULTIPLE CHOICE QUESTIONS", "\n\n".join(mcq_blocks)))
 
-        blocks.append(("Questions", "\n\n".join(q_blocks)))
+        # ── Section B: Written Questions ──
+        if written:
+            written_blocks = []
+            written_instructions = content.get("questions_section", {}).get("instructions")
+            if written_instructions:
+                written_blocks.append(written_instructions + "\n")
+            for i, q in enumerate(written, 1):
+                q_type = q.get("type", "Short Answer").replace("_", " ").title()
+                marks = f"({q.get('marks', 2)} pt{'s' if q.get('marks', 2) != 1 else ''})"
+                written_blocks.append(f"{i}. [{q_type}] {q.get('prompt', '')} {marks}")
+            blocks.append(("SECTION B: SHORT & LONG ANSWER QUESTIONS", "\n\n".join(written_blocks)))
 
-        if is_teacher and answer_key:
-            blocks.append(("Teacher Answer Key & Explanations", "\n\n".join(answer_key)))
+        # ── Teacher Answer Key ──
+        if is_teacher:
+            key_blocks = []
+            if mcqs:
+                key_blocks.append("--- SECTION A ANSWER KEY ---")
+                for i, q in enumerate(mcqs, 1):
+                    ans = f"{i}. Correct Answer: {q.get('correct_answer', 'N/A')}"
+                    if q.get("explanation"):
+                        ans += f"\n   Explanation: {q['explanation']}"
+                    key_blocks.append(ans)
+            if written:
+                key_blocks.append("\n--- SECTION B MODEL ANSWERS & RUBRIC ---")
+                for i, q in enumerate(written, 1):
+                    ans = f"{i}. Model Answer:\n   {q.get('correct_answer', 'Criteria-based response.')}"
+                    if q.get("explanation"):
+                        ans += f"\n   Grading Rationale: {q['explanation']}"
+                    key_blocks.append(ans)
+            blocks.append(("Teacher Answer Key & Explanations", "\n\n".join(key_blocks)))
 
     elif mtype == "assignment":
         if content.get("instructions_for_students"):

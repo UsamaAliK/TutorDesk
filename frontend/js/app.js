@@ -137,8 +137,6 @@
     } else if (target === 'library') {
       viewTitle.textContent = 'Saved Materials Library';
       loadLibraryMaterials();
-    } else if (target === 'chat') {
-      viewTitle.textContent = 'Teaching Assistant Chat';
     }
     // Mobile sidebar close on view switch
     document.querySelector('.conversation-sidebar')?.classList.remove('is-open');
@@ -161,16 +159,22 @@
   const fieldsLesson = document.querySelector('#fields-lesson');
   const fieldsQuiz = document.querySelector('#fields-quiz');
   const fieldsAssignment = document.querySelector('#fields-assignment');
+  const researchNote = document.querySelector('#research-note');
+  const levelSelect = document.querySelector('#form-level');
 
   let activeGenerationType = 'lesson';
+  let modalReturnFocus = null;
 
   function openGeneratorForm(type) {
+    modalReturnFocus = document.activeElement;
     activeGenerationType = type;
     modal.hidden = false;
+    document.querySelector('#form-subject')?.focus();
 
     fieldsLesson.hidden = type !== 'lesson';
     fieldsQuiz.hidden = type !== 'quiz';
     fieldsAssignment.hidden = type !== 'assignment';
+    if (researchNote) researchNote.hidden = levelSelect.value !== 'PhD / Research Mode';
 
     if (type === 'lesson') {
       modalBadge.textContent = 'Lesson Plan';
@@ -190,6 +194,7 @@
 
   function closeGeneratorModal() {
     modal.hidden = true;
+    modalReturnFocus?.focus?.();
   }
 
   document.querySelectorAll('[data-open-form]').forEach((card) => {
@@ -198,14 +203,25 @@
 
   closeModalBtn?.addEventListener('click', closeGeneratorModal);
   cancelFormBtn?.addEventListener('click', closeGeneratorModal);
+  levelSelect?.addEventListener('change', () => {
+    if (researchNote) researchNote.hidden = levelSelect.value !== 'PhD / Research Mode';
+  });
+  modal?.addEventListener('click', (event) => {
+    if (event.target === modal) closeGeneratorModal();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && modal && !modal.hidden) closeGeneratorModal();
+  });
 
   // Duration Pills
   const durationPills = document.querySelectorAll('.duration-pill');
   const hiddenDuration = document.querySelector('#form-lesson-duration');
   durationPills.forEach((pill) => {
+    pill.setAttribute('aria-pressed', String(pill.classList.contains('is-active')));
     pill.addEventListener('click', () => {
       durationPills.forEach((p) => p.classList.remove('is-active'));
       pill.classList.add('is-active');
+      durationPills.forEach((p) => p.setAttribute('aria-pressed', String(p === pill)));
       hiddenDuration.value = pill.dataset.minutes;
     });
   });
@@ -608,96 +624,59 @@
         const list = await res.json();
         const badge = document.querySelector('#materials-count-badge');
         if (badge) badge.textContent = String(list.length);
+        renderRecentMaterials(list);
       }
     } catch (e) { /* ignore */ }
   }
 
-  // ── Preserved RAG Chat, Audio Transcription & PDF Uploads ──────────
-  const thread = document.querySelector('.message-thread');
-  const chatForm = document.querySelector('.message-form');
-  const chatInput = document.querySelector('#message-input');
+  function renderRecentMaterials(materials) {
+    const recentList = document.querySelector('#recent-materials-list');
+    if (!recentList) return;
+    const recent = materials.slice(0, 3);
+    if (!recent.length) {
+      recentList.innerHTML = '<p class="recent-empty">Your saved lessons, quizzes, and assignments will appear here.</p>';
+      return;
+    }
+    recentList.replaceChildren(...recent.map((material) => {
+      const card = document.createElement('article');
+      card.className = 'recent-material';
+      const type = document.createElement('span');
+      type.className = `library-type-badge badge-${material.type}`;
+      type.textContent = material.type;
+      const title = document.createElement('h3');
+      title.textContent = material.title || 'Untitled material';
+      const meta = document.createElement('p');
+      meta.textContent = `${material.subject || 'Untitled subject'} · ${material.educational_level || ''}`;
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'recent-open';
+      open.textContent = 'Open material →';
+      open.addEventListener('click', async () => {
+        try {
+          const response = await fetch(`${apiBase}/materials/${material.id}`, { headers });
+          if (!response.ok) throw new Error(await apiError(response));
+          openContentWorkspace(await response.json());
+        } catch (error) {
+          alert(`Unable to open material: ${error.message}`);
+        }
+      });
+      card.append(type, title, meta, open);
+      return card;
+    }));
+  }
+
+  // ── PDF uploads for grounding generated materials ──────────────────
   const fileInput = document.querySelector('#pdf-input');
   const topUploadBtn = document.querySelector('.top-upload-btn');
-  const attach = document.querySelector('.attach-button');
-  const mic = document.querySelector('.mic-button');
-  const send = document.querySelector('.send-button');
-  const composer = document.querySelector('.composer');
-  const dropzone = document.querySelector('.upload-dropzone');
-  const status = document.querySelector('.upload-status');
-  let conversationId = null;
+  const status = document.querySelector('#upload-status');
 
   function setStatus(message = '', isError = false) {
     if (!status) return;
     status.textContent = message;
     status.classList.toggle('error', isError);
   }
-  function scrollThread() { if (thread) thread.scrollTop = thread.scrollHeight; }
-  function timestamp() { return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date()); }
-
-  function appendInline(container, value) {
-    const pieces = value.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s<]+)/g);
-    pieces.forEach((piece) => {
-      if (piece.startsWith('**') && piece.endsWith('**')) { const strong = document.createElement('strong'); strong.textContent = piece.slice(2, -2); container.append(strong); }
-      else if (piece.startsWith('`') && piece.endsWith('`')) { const code = document.createElement('code'); code.textContent = piece.slice(1, -1); container.append(code); }
-      else if (piece.startsWith('[')) { const match = piece.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/); if (match) { const link = document.createElement('a'); link.href = match[2]; link.textContent = match[1]; link.target = '_blank'; link.rel = 'noopener noreferrer'; container.append(link); } else container.append(document.createTextNode(piece)); }
-      else if (/^https?:\/\//.test(piece)) { const link = document.createElement('a'); link.href = piece; link.textContent = piece; link.target = '_blank'; link.rel = 'noopener noreferrer'; container.append(link); }
-      else container.append(document.createTextNode(piece));
-    });
-  }
-
-  function renderMarkdown(container, value) {
-    container.classList.add('message-markdown');
-    const lines = value.split('\n'); let list = null; let listType = '';
-    const closeList = () => { list = null; listType = ''; };
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-      if (line.startsWith('```')) { closeList(); const block = []; i += 1; while (i < lines.length && !lines[i].startsWith('```')) block.push(lines[i++]); const pre = document.createElement('pre'); const code = document.createElement('code'); code.textContent = block.join('\n'); pre.append(code); container.append(pre); continue; }
-      const heading = line.match(/^(#{1,3})\s+(.+)/);
-      const bullet = line.match(/^[-*]\s+(.+)/);
-      const numbered = line.match(/^\d+\.\s+(.+)/);
-      if (heading) { closeList(); const node = document.createElement(`h${heading[1].length}`); appendInline(node, heading[2]); container.append(node); continue; }
-      if (bullet || numbered) { const type = numbered ? 'ol' : 'ul'; if (!list || listType !== type) { closeList(); list = document.createElement(type); listType = type; container.append(list); } const item = document.createElement('li'); appendInline(item, (bullet || numbered)[1]); list.append(item); continue; }
-      closeList(); if (line.trim()) { const paragraph = document.createElement('p'); appendInline(paragraph, line); container.append(paragraph); }
-    }
-  }
-
-  function addMessage(role, text, typing = false) {
-    thread?.querySelector('.thread-welcome')?.remove();
-    const item = document.createElement('article');
-    item.className = `message ${role}${typing ? ' typing' : ''}`;
-    const avatar = document.createElement('span'); avatar.className = 'message-avatar'; avatar.textContent = role === 'user' ? 'You' : 'TD';
-    const content = document.createElement('div'); content.className = 'message-content';
-    const bubble = document.createElement('div'); bubble.className = 'message-bubble';
-    if (role === 'assistant' && !typing) renderMarkdown(bubble, text); else bubble.textContent = text;
-    const time = document.createElement('time'); time.className = 'message-time'; time.textContent = typing ? '' : timestamp();
-    content.append(bubble, time); item.append(avatar, content); thread?.append(item); scrollThread();
-    return item;
-  }
-
-  function resizeInput() { if (!chatInput) return; chatInput.style.height = 'auto'; chatInput.style.height = `${Math.min(chatInput.scrollHeight, 140)}px`; }
-
-  chatInput?.addEventListener('input', resizeInput);
-  chatInput?.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); chatForm.requestSubmit(); } });
-
   topUploadBtn?.addEventListener('click', () => fileInput?.click());
-  attach?.addEventListener('click', () => fileInput?.click());
   fileInput?.addEventListener('change', () => uploadFile(fileInput.files[0]));
-
-  chatForm?.addEventListener('submit', async (event) => {
-    event.preventDefault(); const query = chatInput.value.trim(); if (!query || send.disabled) return;
-    setStatus(); addMessage('user', query); chatInput.value = ''; resizeInput(); send.disabled = true;
-    const typing = addMessage('assistant', 'TutorDesk is thinking…', true);
-    try {
-      const response = await fetch(`${apiBase}/ask`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ query, conversation_id: conversationId }) });
-      if (!response.ok) throw new Error(await apiError(response));
-      const body = await response.json(); conversationId = body.conversation_id || conversationId;
-      if (conversationId) localStorage.setItem('tutordesk_active_conversation', String(conversationId));
-      typing.remove(); addMessage('assistant', body.response || 'I could not generate a response.');
-      window.dispatchEvent(new CustomEvent('tutordesk:conversation-updated', { detail: { id: conversationId, title: query } }));
-      window.dispatchEvent(new CustomEvent('tutordesk:sources', { detail: body.sources || [] }));
-    } catch (error) { typing.remove(); addMessage('assistant', error.message || 'Unable to reach TutorDesk.'); }
-    finally { send.disabled = false; chatInput.focus(); }
-  });
 
   async function uploadFile(file) {
     if (!file) return;
@@ -712,64 +691,6 @@
       window.dispatchEvent(new CustomEvent('tutordesk:document-uploaded'));
     } catch (error) { setStatus(error.message || 'Upload failed. Please try again.', true); }
     finally { if (fileInput) fileInput.value = ''; }
-  }
-
-  // Voice recording preservation
-  let recorder = null;
-  let audioStream = null;
-  let recordTimer = null;
-  let recordSeconds = 0;
-  const AUDIO_MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/aac'];
-
-  function pickAudioMimeType() {
-    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
-    return AUDIO_MIME_CANDIDATES.find((type) => MediaRecorder.isTypeSupported(type)) || '';
-  }
-  function stopAudioStream() { audioStream?.getTracks().forEach((track) => track.stop()); audioStream = null; }
-  function endRecording() {
-    if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
-    mic?.classList.remove('is-recording');
-    mic?.setAttribute('aria-label', 'Record voice message');
-    stopAudioStream();
-  }
-  async function startRecording() {
-    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) return setStatus('Voice recording is not supported in this browser.', true);
-    try { audioStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { return setStatus('Microphone access was denied.', true); }
-    const mimeType = pickAudioMimeType();
-    let activeRecorder;
-    try { activeRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined); }
-    catch { stopAudioStream(); return setStatus('Could not start recording.', true); }
-    const chunks = [];
-    activeRecorder.addEventListener('dataavailable', (event) => { if (event.data.size) chunks.push(event.data); });
-    activeRecorder.addEventListener('stop', () => uploadRecording(new Blob(chunks, { type: activeRecorder.mimeType || mimeType || 'audio/webm' })));
-    activeRecorder.start();
-    recorder = activeRecorder;
-    mic?.classList.add('is-recording');
-    recordSeconds = 0;
-    recordTimer = setInterval(() => { recordSeconds += 1; setStatus(`Recording ${recordSeconds}s…`); if (recordSeconds >= 120) stopRecording(); }, 1000);
-  }
-  function stopRecording() { if (!recorder || recorder.state === 'inactive') return; recorder.stop(); recorder = null; setStatus('Transcribing…'); endRecording(); }
-  async function uploadRecording(blob) {
-    if (mic) mic.disabled = true;
-    try {
-      const data = new FormData(); data.append('file', blob, 'recording');
-      const response = await fetch(`${apiBase}/transcribe`, { method: 'POST', headers: authHeaders(), body: data });
-      if (!response.ok) throw new Error(await apiError(response));
-      const body = await response.json();
-      const text = (body.text || '').trim();
-      if (!text) throw new Error('No speech detected.');
-      if (chatInput) { chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()} ${text}` : text; resizeInput(); chatInput.focus(); }
-      setStatus('Transcribed — send when ready.');
-    } catch (error) { setStatus(error.message || 'Transcription failed.', true); }
-    finally { if (mic) mic.disabled = false; }
-  }
-  mic?.addEventListener('click', () => { if (recorder) stopRecording(); else startRecording(); });
-
-  if (composer) {
-    ['dragenter', 'dragover'].forEach((name) => composer.addEventListener(name, (e) => { e.preventDefault(); composer.classList.add('drag-over'); if (dropzone) dropzone.hidden = false; }));
-    ['dragleave', 'drop'].forEach((name) => composer.addEventListener(name, (e) => { e.preventDefault(); composer.classList.remove('drag-over'); if (dropzone) dropzone.hidden = true; }));
-    composer.addEventListener('drop', (e) => uploadFile(e.dataTransfer.files[0]));
   }
 
   // ── Document List (Uploaded PDFs in Sidebar) ────────────────────────

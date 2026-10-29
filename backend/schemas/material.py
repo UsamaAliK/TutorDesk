@@ -66,10 +66,11 @@ class QuizGenerateRequest(BaseModel):
     topic: str = Field(..., min_length=2, max_length=250)
     educational_level: EducationalLevel = EducationalLevel.GRADE_9_12
     difficulty: DifficultyLevel = DifficultyLevel.MEDIUM
-    total_questions: int = Field(10, ge=1, le=50)
-    num_mcqs: int = Field(6, ge=0)
-    num_short_answer: int = Field(3, ge=0)
-    num_long_answer: int = Field(1, ge=0)
+    num_mcqs: int = Field(5, ge=0, description="Number of MCQs in Section A")
+    num_short_answer: int = Field(3, ge=0, description="Number of Short-Answer Questions in Section B")
+    num_long_answer: int = Field(2, ge=0, description="Number of Long-Answer Questions in Section B")
+    total_written_questions: Optional[int] = Field(None, ge=0, description="Total written questions in Section B")
+    total_questions: Optional[int] = Field(None, ge=1, description="Total combined items across quiz")
     mcq_options_count: int = Field(4, ge=2, le=6)
     time_limit_minutes: Optional[int] = Field(None, ge=5, le=180)
     total_marks: Optional[int] = Field(None, ge=1)
@@ -83,12 +84,22 @@ class QuizGenerateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_distribution(self) -> "QuizGenerateRequest":
-        distribution_sum = self.num_mcqs + self.num_short_answer + self.num_long_answer
-        if distribution_sum != self.total_questions:
+        written_sum = self.num_short_answer + self.num_long_answer
+        if self.total_written_questions is not None and self.total_written_questions != written_sum:
             raise ValueError(
-                f"Question distribution ({self.num_mcqs} MCQs + {self.num_short_answer} Short Answer + "
-                f"{self.num_long_answer} Long Answer = {distribution_sum}) must equal total questions ({self.total_questions})."
+                f"Written questions distribution ({self.num_short_answer} Short Answer + {self.num_long_answer} Long Answer = {written_sum}) "
+                f"must equal total written questions ({self.total_written_questions})."
             )
+
+        if self.num_mcqs == 0 and written_sum == 0:
+            raise ValueError("Quiz must contain at least one MCQ or one written question.")
+
+        if self.total_written_questions is None:
+            self.total_written_questions = written_sum
+
+        if self.total_questions is None:
+            self.total_questions = self.num_mcqs + written_sum
+
         return self
 
 
