@@ -109,12 +109,15 @@
 
   function authHeaders(extra = {}) { return { Authorization: `Bearer ${token}`, ...extra }; }
   async function apiError(response) {
-    const body = await response.json().catch(() => ({}));
+    const responseText = await response.text().catch(() => '');
+    let body = {};
+    try { body = responseText ? JSON.parse(responseText) : {}; } catch { /* non-JSON server response */ }
     if (response.status === 401) {
       localStorage.removeItem('tutordesk_token');
       window.location.assign('/');
     }
-    return body.detail || 'Request failed. Please try again.';
+    const detail = body.detail || body.message || responseText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+    return detail ? `${detail} (HTTP ${response.status})` : `Request failed (HTTP ${response.status}). Please try again.`;
   }
 
   // ── Views Navigation ────────────────────────────────────────────────
@@ -545,9 +548,12 @@
   // Export handlers
   async function downloadMaterial(materialId, format, audience = 'teacher') {
     try {
-      const response = await fetch(`${apiBase}/materials/${materialId}/export?format=${format}&audience=${audience}`, { headers });
+      const response = await fetch(`${apiBase}/materials/${materialId}/export?format=${encodeURIComponent(format)}&audience=${encodeURIComponent(audience)}`, {
+        headers: authHeaders({ Accept: format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+      });
       if (!response.ok) throw new Error(await apiError(response));
       const file = await response.blob();
+      if (!file.size) throw new Error('The server returned an empty file. Please try exporting again.');
       const extension = format === 'pdf' ? 'pdf' : 'docx';
       const disposition = response.headers.get('Content-Disposition') || '';
       const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || `tutordesk-material.${extension}`;
@@ -558,7 +564,7 @@
       document.body.append(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       alert(`Download failed: ${error.message}`);
     }
@@ -711,6 +717,11 @@
   }
 
   uploadSourcePdfButton?.addEventListener('click', () => sourcePdfInput?.click());
+  sourceDocumentSelect?.addEventListener('change', () => {
+    const sourceMode = document.querySelector('#form-source-mode');
+    if (sourceDocumentSelect.value && sourceMode.value === 'web_search') sourceMode.value = 'material_only';
+    if (sourceUploadStatus) sourceUploadStatus.textContent = '';
+  });
   sourcePdfInput?.addEventListener('change', async () => {
     const file = sourcePdfInput.files[0];
     if (!file) return;

@@ -1,8 +1,23 @@
 import io
 import fitz
 import zipfile
+import unicodedata
 from xml.sax.saxutils import escape
 from backend.db.models import Material
+
+
+def _pdf_compatible_text(value: str) -> str:
+    """Keep text printable with PyMuPDF's built-in Helvetica font."""
+    replacements = {
+        "•": "-", "–": "-", "—": "-", "…": "...", "“": '"', "”": '"',
+        "‘": "'", "’": "'", "→": "->", "×": "x", "÷": "/", "≤": "<=", "≥": ">=",
+    }
+    normalized = "".join(replacements.get(char, char) for char in str(value))
+    normalized = unicodedata.normalize("NFKD", normalized)
+    return "".join(
+        char if ord(char) < 128 else "" if unicodedata.combining(char) else "?"
+        for char in normalized
+    )
 
 
 def _format_material_text(material: Material, audience: str = "teacher") -> list[tuple[str, str]]:
@@ -158,6 +173,8 @@ def export_to_pdf(material: Material, audience: str = "teacher") -> bytes:
     margin_x = 54
 
     for heading, text_body in blocks:
+        heading = _pdf_compatible_text(heading)
+        text_body = _pdf_compatible_text(text_body)
         # Check remaining space for heading
         if y > max_y - 40:
             page = doc.new_page(width=595, height=842)

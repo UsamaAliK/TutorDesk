@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import re
 from contextlib import asynccontextmanager
 import os
 from uuid import uuid4
@@ -41,6 +43,9 @@ from backend.security import hash_password,verify_password,create_access_token
 from backend.auth import get_current_user
 from supabase import create_async_client
 from backend.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -463,7 +468,11 @@ async def export_material(
     safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', material.title)[:40]
 
     if format == "pdf":
-        file_bytes = export_to_pdf(material, audience=audience)
+        try:
+            file_bytes = export_to_pdf(material, audience=audience)
+        except Exception as exc:
+            logger.exception("PDF export failed for material %s", material_id)
+            raise HTTPException(status_code=500, detail="PDF generation failed. Please try again or export as DOCX.") from exc
         filename = f"{safe_title}_{audience}.pdf"
         return Response(
             content=file_bytes,
@@ -471,7 +480,11 @@ async def export_material(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'}
         )
     elif format in ("docx", "doc"):
-        file_bytes = export_to_docx(material, audience=audience)
+        try:
+            file_bytes = export_to_docx(material, audience=audience)
+        except Exception as exc:
+            logger.exception("DOCX export failed for material %s", material_id)
+            raise HTTPException(status_code=500, detail="DOCX generation failed. Please try again or export as PDF.") from exc
         filename = f"{safe_title}_{audience}.docx"
         return Response(
             content=file_bytes,
