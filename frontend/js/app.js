@@ -583,6 +583,13 @@
   const libraryFilters = document.querySelectorAll('.lib-filter-pill');
   let currentFilter = 'all';
 
+  function displayDate(value) {
+    if (!value) return 'Date unavailable';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Date unavailable';
+    return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+  }
+
   libraryFilters.forEach((pill) => {
     pill.addEventListener('click', () => {
       libraryFilters.forEach((p) => p.classList.remove('is-active'));
