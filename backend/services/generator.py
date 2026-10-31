@@ -1,19 +1,23 @@
+import asyncio
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.llm.model import llm
-from backend.db.models import Material
+from backend.db.models import Material, Upload
+from backend.graph.graph import generation_graph
+from backend.graph.state import GenerationState
 from backend.schemas.material import (
     LessonGenerateRequest,
     QuizGenerateRequest,
     AssignmentGenerateRequest,
     RegenerateItemRequest,
     EducationalLevel,
+    SourceMode,
 )
-from backend.services.source_resolver import resolve_content_sources
 
 
 def _extract_json(text: str) -> Dict[str, Any]:
@@ -39,107 +43,75 @@ def _extract_json(text: str) -> Dict[str, Any]:
         )
 
 
+async def _resolve_selected_upload(
+    user_id: int,
+    source_mode: SourceMode,
+    selected_document_id: Optional[int],
+    db: AsyncSession,
+) -> Optional[Upload]:
+    """Validates user's document selection for grounded generation."""
+    if source_mode in (SourceMode.MATERIAL_ONLY, SourceMode.COMBINED) and not selected_document_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose a PDF for this material or select web research only.",
+        )
+    if selected_document_id:
+        result = await db.execute(
+            select(Upload).where(Upload.id == selected_document_id, Upload.user_id == user_id)
+        )
+        upload = result.scalar_one_or_none()
+        if not upload:
+            raise HTTPException(
+                status_code=400,
+                detail="The selected PDF is no longer available in your uploaded materials."
+            )
+        return upload
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────
-# 1. Lesson Generator
+# 1. Lesson Generator (Iterative LangGraph Workflow)
 # ─────────────────────────────────────────────────────────────────────
-
-LESSON_SYSTEM_PROMPT = """\
-You are TutorDesk, an expert curriculum designer and pedagogy specialist.
-Your mission is to generate a comprehensive, highly structured lesson for educators.
-
-CRITICAL INSTRUCTIONS:
-1. Grounding: Rely strictly on the PROVIDED SOURCES below. Never fabricate statistics, quotes, or claims not supported by the sources.
-2. Educational Level: Adapt vocabulary, depth, conceptual sophistication, and examples to: {educational_level}.
-   {phd_instruction}
-3. Duration Proportion: The lesson is designed for EXACTLY {duration_minutes} MINUTES.
-   - Allocate minutes across sections accurately so their sum equals {duration_minutes}.
-   - A short 10-20 min lesson should be focused and concise.
-   - A 60-120 min lecture must be deep, thoroughly elaborated with detailed subtopics and discussions.
-4. Output Format: Return a VALID RAW JSON OBJECT only. Do not wrap in markdown quotes if possible, or use standard ```json.
-
-REQUIRED JSON STRUCTURE:
-{{
-  "title": "Clear and Engaging Lesson Title",
-  "overview": "2-3 sentence overview of what students will master",
-  "subject": "{subject}",
-  "topic": "{topic}",
-  "educational_level": "{educational_level}",
-  "duration_minutes": {duration_minutes},
-  "learning_objectives": ["Objective 1 with measurable verb", "Objective 2"],
-  "prerequisite_knowledge": ["Concept A", "Concept B"],
-  "sections": [
-    {{
-      "id": "sec_1",
-      "title": "Section Title (e.g. Introduction & Conceptual Hook)",
-      "time_minutes": 10,
-      "concepts": "In-depth theoretical explanation and core principles...",
-      "examples": ["Concrete real-world example or demonstration"],
-      "activities": "Interactive student activity or check for understanding"
-    }}
-  ],
-  "practice_questions": [
-    {{
-      "id": "pq_1",
-      "question": "Practice question prompt",
-      "guidance": "Brief teacher answer or scoring guide"
-    }}
-  ],
-  "summary": "Key takeaways synthesized in 3-4 bullet points",
-  "assessment_followup": "Homework, project idea, or exit ticket suggestion",
-  "sources": []
-}}
-"""
 
 async def generate_lesson(request: LessonGenerateRequest, user_id: int, db: AsyncSession) -> Material:
-    query = f"{request.subject}: {request.topic}"
-    context, sources = await resolve_content_sources(
+    upload = await _resolve_selected_upload(
         user_id=user_id,
         source_mode=request.source_mode,
-        query=query,
-        educational_level=request.educational_level,
         selected_document_id=request.selected_document_id,
         db=db,
     )
 
-    phd_instruction = ""
-    if request.educational_level == EducationalLevel.PHD_RESEARCH:
-        phd_instruction = (
-            "RESEARCH / PHD MODE ACTIVATED: Focus on critical analysis of theoretical frameworks, "
-            "methodological considerations, current empirical debates, literature synthesis, and cite available sources rigorously."
+    state: GenerationState = {
+        "subject": request.subject,
+        "topic": request.topic,
+        "material_type": "lesson",
+        "educational_level": request.educational_level.value,
+        "source_mode": request.source_mode.value,
+        "user_id": user_id,
+        "selected_document_id": upload.id if upload else None,
+        "selected_filename": upload.filename if upload else None,
+        "query": f"{request.subject}: {request.topic}",
+        "retry_count": 0,
+        "max_retries": 2,
+        "generation_spec": {
+            "duration_minutes": request.duration_minutes,
+            "teaching_style": request.teaching_style,
+            "learning_objectives": request.learning_objectives,
+            "curriculum": request.curriculum,
+            "additional_instructions": request.additional_instructions,
+            "language": request.language,
+        },
+    }
+
+    final_state = await asyncio.to_thread(generation_graph.invoke, state)
+    data = final_state.get("content_json")
+    if not data:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate lesson content via LangGraph. Please adjust instructions and try again."
         )
 
-    user_prompt = f"""
-Subject: {request.subject}
-Topic: {request.topic}
-Educational Level: {request.educational_level.value}
-Duration: {request.duration_minutes} minutes
-Language: {request.language}
-Preferred Teaching Style: {request.teaching_style or 'Engaging, clear, pedagogical'}
-Learning Objectives Requested: {request.learning_objectives or 'Standard curriculum outcomes'}
-Curriculum/Syllabus: {request.curriculum or 'Standard'}
-Additional Teacher Instructions: {request.additional_instructions or 'None'}
-
-PROVIDED SOURCES FOR GROUNDING:
-{context}
-"""
-
-    formatted_system = LESSON_SYSTEM_PROMPT.format(
-        subject=request.subject,
-        topic=request.topic,
-        educational_level=request.educational_level.value,
-        duration_minutes=request.duration_minutes,
-        phd_instruction=phd_instruction,
-    )
-
-    response = await llm.ainvoke([
-        ("system", formatted_system),
-        ("user", user_prompt)
-    ])
-
-    data = _extract_json(response.content)
-    data["sources"] = sources
     title = data.get("title") or f"Lesson: {request.topic}"
-
     material = Material(
         user_id=user_id,
         type="lesson",
@@ -158,123 +130,49 @@ PROVIDED SOURCES FOR GROUNDING:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 2. Quiz Generator
+# 2. Quiz Generator (Section A: MCQs, Section B: Written Questions)
 # ─────────────────────────────────────────────────────────────────────
 
-QUIZ_SYSTEM_PROMPT = """\
-You are TutorDesk, an expert assessment specialist.
-Generate a high-quality, strictly calibrated quiz for teachers with TWO DISTINCT SECTIONS:
-- SECTION A: MULTIPLE CHOICE QUESTIONS (MCQs)
-- SECTION B: SHORT & LONG ANSWER QUESTIONS
-
-STRICT CONFIGURATION CONSTRAINTS:
-- Educational Level: {educational_level}
-- Difficulty: {difficulty}
-- SECTION A (MCQs): Exactly {num_mcqs} questions.
-  * Each MCQ MUST have EXACTLY {mcq_options_count} options (e.g. A, B, C, D).
-  * EXACTLY ONE option is correct.
-  * Options must be plausible; avoid lazy distractors like 'None of the above'.
-- SECTION B (WRITTEN QUESTIONS): Exactly {num_short_answer} Short-Answer and {num_long_answer} Long-Answer questions.
-- ANSWER KEY & EXPLANATIONS:
-  * Provide an unambiguous correct answer and an explanatory rationale for every question.
-
-REQUIRED JSON STRUCTURE:
-{{
-  "title": "Quiz: {topic}",
-  "subject": "{subject}",
-  "topic": "{topic}",
-  "educational_level": "{educational_level}",
-  "difficulty": "{difficulty}",
-  "time_limit_minutes": {time_limit_str},
-  "total_marks": {total_marks_str},
-  "instructions_for_students": "Read each section carefully. Section A contains multiple-choice questions; Section B contains written questions.",
-  "mcq_section": {{
-    "title": "Section A: Multiple Choice Questions",
-    "instructions": "Select the single best answer for each question.",
-    "mcqs": [
-      {{
-        "id": "mcq_1",
-        "type": "mcq",
-        "prompt": "Which of the following describes...",
-        "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
-        "correct_answer": "A) ...",
-        "explanation": "Option A is correct because...",
-        "marks": 1
-      }}
-    ]
-  }},
-  "questions_section": {{
-    "title": "Section B: Short & Long Answer Questions",
-    "instructions": "Write detailed, well-reasoned answers to the questions below.",
-    "questions": [
-      {{
-        "id": "q_1",
-        "type": "short_answer",
-        "prompt": "Define ... and state two examples.",
-        "correct_answer": "Model short answer criteria...",
-        "explanation": "Expected key concepts include...",
-        "marks": 3
-      }},
-      {{
-        "id": "q_2",
-        "type": "long_answer",
-        "prompt": "Explain in detail how ... impacts ...",
-        "correct_answer": "Comprehensive model response with evaluation points...",
-        "explanation": "Grading guidance: award points for thesis, evidence, and conclusion.",
-        "marks": 5
-      }}
-    ]
-  }},
-  "sources": []
-}}
-"""
-
 async def generate_quiz(request: QuizGenerateRequest, user_id: int, db: AsyncSession) -> Material:
-    query = f"{request.subject}: {request.topic}"
-    context, sources = await resolve_content_sources(
+    upload = await _resolve_selected_upload(
         user_id=user_id,
         source_mode=request.source_mode,
-        query=query,
-        educational_level=request.educational_level,
         selected_document_id=request.selected_document_id,
         db=db,
     )
 
-    system_prompt = QUIZ_SYSTEM_PROMPT.format(
-        subject=request.subject,
-        topic=request.topic,
-        educational_level=request.educational_level.value,
-        difficulty=request.difficulty.value,
-        num_mcqs=request.num_mcqs,
-        num_short_answer=request.num_short_answer,
-        num_long_answer=request.num_long_answer,
-        mcq_options_count=request.mcq_options_count,
-        time_limit_str=str(request.time_limit_minutes) if request.time_limit_minutes else "null",
-        total_marks_str=str(request.total_marks) if request.total_marks else "null",
-    )
+    state: GenerationState = {
+        "subject": request.subject,
+        "topic": request.topic,
+        "material_type": "quiz",
+        "educational_level": request.educational_level.value,
+        "difficulty": request.difficulty.value,
+        "source_mode": request.source_mode.value,
+        "user_id": user_id,
+        "selected_document_id": upload.id if upload else None,
+        "selected_filename": upload.filename if upload else None,
+        "query": f"{request.subject}: {request.topic}",
+        "retry_count": 0,
+        "max_retries": 2,
+        "generation_spec": {
+            "num_mcqs": request.num_mcqs,
+            "num_short_answer": request.num_short_answer,
+            "num_long_answer": request.num_long_answer,
+            "mcq_options_count": request.mcq_options_count,
+            "time_limit_minutes": request.time_limit_minutes,
+            "total_marks": request.total_marks,
+            "additional_instructions": request.additional_instructions,
+            "learning_objectives": request.learning_objectives,
+        },
+    }
 
-    user_prompt = f"""
-Subject: {request.subject}
-Topic: {request.topic}
-Educational Level: {request.educational_level.value}
-Difficulty: {request.difficulty.value}
-Section A - MCQs Count: {request.num_mcqs} (each with {request.mcq_options_count} options)
-Section B - Short Answer Count: {request.num_short_answer}
-Section B - Long Answer Count: {request.num_long_answer}
-Learning Objectives: {request.learning_objectives or 'Comprehensive mastery'}
-Additional Instructions: {request.additional_instructions or 'None'}
-
-GROUNDING MATERIAL:
-{context}
-"""
-
-    response = await llm.ainvoke([
-        ("system", system_prompt),
-        ("user", user_prompt)
-    ])
-
-    data = _extract_json(response.content)
-    data["sources"] = sources
+    final_state = await asyncio.to_thread(generation_graph.invoke, state)
+    data = final_state.get("content_json")
+    if not data:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate quiz content via LangGraph. Please adjust instructions and try again."
+        )
 
     # Harmonize sections and backward-compatible flat list
     mcq_sec = data.get("mcq_section") or {}
@@ -287,14 +185,16 @@ GROUNDING MATERIAL:
         mcqs = [q for q in flat if q.get("type") == "mcq" or q.get("options")]
         written_questions = [q for q in flat if q not in mcqs]
         data["mcq_section"] = {
-            "title": "Section A: Multiple Choice Questions",
+            "title": "Section A: Multiple Choice Questions (MCQs)",
             "instructions": "Select the single best answer for each question.",
-            "mcqs": mcqs
+            "total_mcqs": len(mcqs),
+            "mcqs": mcqs,
         }
         data["questions_section"] = {
             "title": "Section B: Short & Long Answer Questions",
             "instructions": "Write detailed, well-reasoned answers to the questions below.",
-            "questions": written_questions
+            "total_questions": len(written_questions),
+            "questions": written_questions,
         }
 
     # Ensure flat questions array exists for backward compatibility
@@ -307,7 +207,6 @@ GROUNDING MATERIAL:
         data["total_marks"] = computed_marks or request.total_marks
 
     title = data.get("title") or f"Quiz: {request.topic}"
-
     material = Material(
         user_id=user_id,
         type="quiz",
@@ -326,106 +225,52 @@ GROUNDING MATERIAL:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# 3. Assignment Generator
+# 3. Assignment Generator (LangGraph Iterative Workflow)
 # ─────────────────────────────────────────────────────────────────────
 
-ASSIGNMENT_SYSTEM_PROMPT = """\
-You are TutorDesk, a distinguished educator creating a structured assignment.
-
-REQUIREMENTS:
-- Educational Level: {educational_level}
-- Difficulty: {difficulty}
-- SECTION A: Exactly {num_mcqs} multiple-choice questions (MCQs). This count is separate and must NOT be included in the task count.
-- If {num_mcqs} is 0, return an empty MCQ array.
-- SECTION B: Exactly {total_tasks} tasks/problems. This count excludes MCQs.
-- Allowed Task Types: {task_types}
-- Output must feature both student-facing problem descriptions AND a complete teacher grading rubric + model answer for every task.
-- Ensure tasks stimulate critical thinking, application of theory, and analytical depth appropriate for {educational_level}.
-
-REQUIRED JSON STRUCTURE:
-{{
-  "title": "Assignment: {topic}",
-  "subject": "{subject}",
-  "topic": "{topic}",
-  "educational_level": "{educational_level}",
-  "difficulty": "{difficulty}",
-  "total_marks": {total_marks_str},
-  "deadline_days": {deadline_days_str},
-  "instructions_for_students": "Detailed guidelines on submission format, academic integrity, and expectations...",
-  "mcq_section": {{
-    "title": "Section A: Multiple Choice Questions",
-    "mcqs": [
-      {{"id": "mcq_1", "type": "mcq", "prompt": "Question...", "options": ["A) ...", "B) ...", "C) ...", "D) ..."], "correct_answer": "A) ...", "explanation": "...", "marks": 1}}
-    ]
-  }},
-  "tasks": [
-    {{
-      "id": "t1",
-      "type": "problem_solving",
-      "title": "Task 1 Title",
-      "prompt": "Comprehensive scenario or task description...",
-      "marks": 10,
-      "model_answer": "Exemplary solution demonstrating full points...",
-      "rubric_criteria": [
-        {{"criterion": "Conceptual Accuracy", "points": 5, "description": "Accurately applies principles..."}},
-        {{"criterion": "Analytical Rigor", "points": 5, "description": "Provides step-by-step logic and justification."}}
-      ]
-    }}
-  ],
-  "marking_rubric_summary": "General criteria for overall submission...",
-  "sources": []
-}}
-"""
-
 async def generate_assignment(request: AssignmentGenerateRequest, user_id: int, db: AsyncSession) -> Material:
-    query = f"{request.subject}: {request.topic}"
-    context, sources = await resolve_content_sources(
+    upload = await _resolve_selected_upload(
         user_id=user_id,
         source_mode=request.source_mode,
-        query=query,
-        educational_level=request.educational_level,
         selected_document_id=request.selected_document_id,
         db=db,
     )
 
-    system_prompt = ASSIGNMENT_SYSTEM_PROMPT.format(
-        subject=request.subject,
-        topic=request.topic,
-        educational_level=request.educational_level.value,
-        difficulty=request.difficulty.value,
-        total_tasks=request.total_tasks,
-        num_mcqs=request.num_mcqs,
-        task_types=", ".join(request.task_types),
-        total_marks_str=str(request.total_marks) if request.total_marks else "50",
-        deadline_days_str=str(request.deadline_days) if request.deadline_days else "7",
-    )
+    state: GenerationState = {
+        "subject": request.subject,
+        "topic": request.topic,
+        "material_type": "assignment",
+        "educational_level": request.educational_level.value,
+        "difficulty": request.difficulty.value,
+        "source_mode": request.source_mode.value,
+        "user_id": user_id,
+        "selected_document_id": upload.id if upload else None,
+        "selected_filename": upload.filename if upload else None,
+        "query": f"{request.subject}: {request.topic}",
+        "retry_count": 0,
+        "max_retries": 2,
+        "generation_spec": {
+            "num_mcqs": request.num_mcqs,
+            "total_tasks": request.total_tasks,
+            "task_types": request.task_types,
+            "total_marks": request.total_marks,
+            "deadline_days": request.deadline_days,
+            "instructions_for_students": request.instructions_for_students,
+            "include_rubric": request.include_rubric,
+            "include_model_answers": request.include_model_answers,
+            "additional_instructions": request.additional_instructions,
+        },
+    }
 
-    user_prompt = f"""
-Subject: {request.subject}
-Topic: {request.topic}
-Educational Level: {request.educational_level.value}
-Difficulty: {request.difficulty.value}
-Section A MCQs: {request.num_mcqs} (separate count; do not include in task count)
-Section B Tasks / Problems: {request.total_tasks}
-Selected Task Types: {request.task_types}
-Student Instructions Customization: {request.instructions_for_students or 'Standard format'}
-Include Rubric: {request.include_rubric}
-Include Model Answers: {request.include_model_answers}
-Additional Teacher Instructions: {request.additional_instructions or 'None'}
+    final_state = await asyncio.to_thread(generation_graph.invoke, state)
+    data = final_state.get("content_json")
+    if not data:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate assignment content via LangGraph. Please adjust instructions and try again."
+        )
 
-GROUNDING CONTEXT:
-{context}
-"""
-
-    response = await llm.ainvoke([
-        ("system", system_prompt),
-        ("user", user_prompt)
-    ])
-
-    data = _extract_json(response.content)
-    data["sources"] = sources
     title = data.get("title") or f"Assignment: {request.topic}"
-
     material = Material(
         user_id=user_id,
         type="assignment",

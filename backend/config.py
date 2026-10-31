@@ -27,6 +27,7 @@ class Settings():
    RETRIEVE_K=4
    WEB_SEARCH_MAX_RESULTS=5
    TOP_SOURCES=3
+   MAX_WEB_RETRIES=2
 
 
 settings=Settings()

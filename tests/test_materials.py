@@ -172,6 +172,31 @@ class TestExportEngine(unittest.TestCase):
             self.assertIn("Artificial neurons", xml_content)
 
 
+class TestLangGraphWorkflow(unittest.TestCase):
+    def test_routing_entry_logic(self):
+        from backend.graph.graph import route_entry
+        self.assertEqual(route_entry({"source_mode": "material_only"}), "retrieve_material")
+        self.assertEqual(route_entry({"source_mode": "combined"}), "retrieve_material")
+        self.assertEqual(route_entry({"source_mode": "web_search"}), "web_research")
+
+    def test_routing_after_rag_grade(self):
+        from backend.graph.graph import route_after_rag_grade
+        # Material only proceeds to generation directly
+        self.assertEqual(route_after_rag_grade({"source_mode": "material_only", "documents_sufficient": True}), "generate_material")
+        self.assertEqual(route_after_rag_grade({"source_mode": "material_only", "documents_sufficient": False}), "generate_material")
+        # Combined mode routes to web research for augmentation
+        self.assertEqual(route_after_rag_grade({"source_mode": "combined", "documents_sufficient": True}), "web_research")
+
+    def test_routing_after_web_grade(self):
+        from backend.graph.graph import route_after_web_grade
+        # If sufficient, generate
+        self.assertEqual(route_after_web_grade({"documents_sufficient": True, "retry_count": 0, "max_retries": 2}), "generate_material")
+        # If insufficient but retries exhausted, generate
+        self.assertEqual(route_after_web_grade({"documents_sufficient": False, "retry_count": 2, "max_retries": 2}), "generate_material")
+        # If insufficient and retries remaining, refine query
+        self.assertEqual(route_after_web_grade({"documents_sufficient": False, "retry_count": 1, "max_retries": 2}), "refine_query")
+
+
 if __name__ == "__main__":
     unittest.main()
 
